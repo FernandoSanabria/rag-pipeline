@@ -68,10 +68,11 @@ def main() -> None:
 
     samples = []
     for row in rows:
-        result = ask(row["user_input"])
+        question = row.get("question") or row.get("user_input")
+        result = ask(question)
         samples.append(
             SingleTurnSample(
-                user_input=row["user_input"],
+                user_input=question,
                 response=result["answer"],
                 retrieved_contexts=result["contexts"],
                 reference=row.get("reference"),
