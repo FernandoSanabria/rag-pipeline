@@ -10,7 +10,6 @@ user_input / retrieved_contexts / response / reference, and the classic evaluate
 """
 
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,10 +20,9 @@ DATASET_PATH = REPO_ROOT / "eval" / "dataset.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "results"
 
 # Load .env into os.environ BEFORE importing langchain/ragas so LANGCHAIN_* tracing vars
-# are picked up (uv run does not auto-load .env).
+# are picked up (uv run does not auto-load .env). The project is installed editable, so `src`
+# imports resolve with no sys.path manipulation.
 load_dotenv(REPO_ROOT / ".env")
-
-sys.path.insert(0, str(REPO_ROOT))
 
 
 def _load_dataset(path: Path) -> list[dict]:
