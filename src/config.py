@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     langchain_project: str | None = Field(default=None, alias="LANGCHAIN_PROJECT")
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
     index_name: str = Field(default="equip-docs-rag", alias="INDEX_NAME")
+    llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
 
 
 @lru_cache
@@ -39,6 +40,7 @@ if __name__ == "__main__":
     print(f"  LANGCHAIN_PROJECT    = {s.langchain_project or '<unset>'}")
     print(f"  COHERE_API_KEY       = {_mask(s.cohere_api_key)}")
     print(f"  INDEX_NAME           = {s.index_name}")
+    print(f"  LLM_MODEL            = {s.llm_model}")
 
     langsmith_ok = bool(s.langchain_api_key) and bool(s.langchain_project)
     print(
