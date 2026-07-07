@@ -6,3 +6,4 @@ data/processed/*
 !data/processed/.gitkeep
 eval/results/*
 !eval/results/.gitkeep
+scratchpad/
