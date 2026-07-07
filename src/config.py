@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     langchain_tracing_v2: bool = Field(default=False, alias="LANGCHAIN_TRACING_V2")
     langchain_project: str | None = Field(default=None, alias="LANGCHAIN_PROJECT")
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
+    index_name: str = Field(default="equip-docs-rag", alias="INDEX_NAME")
 
 
 @lru_cache
@@ -37,6 +38,7 @@ if __name__ == "__main__":
     print(f"  LANGCHAIN_TRACING_V2 = {s.langchain_tracing_v2}")
     print(f"  LANGCHAIN_PROJECT    = {s.langchain_project or '<unset>'}")
     print(f"  COHERE_API_KEY       = {_mask(s.cohere_api_key)}")
+    print(f"  INDEX_NAME           = {s.index_name}")
 
     langsmith_ok = bool(s.langchain_api_key) and bool(s.langchain_project)
     print(
