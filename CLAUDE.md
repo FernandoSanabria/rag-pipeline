@@ -12,11 +12,15 @@ These conventions are binding for every task in this repo.
   BEFORE** any retrieval or generation logic — the harness comes first, always.
 
 ## Evaluation
-- Evaluation uses **RAGAS** with exactly four metrics, no more, no fewer:
+- Evaluation uses **RAGAS** with exactly five canonical metrics, no more, no fewer:
   - faithfulness
   - answer relevancy
   - context precision
   - context recall
+  - answer correctness (scored against the hand-verified `reference`)
+- `answer correctness` guards against faithful-but-wrong answers (grounded in the retrieved
+  context yet not actually answering the question). It was promoted from a supplementary metric
+  to canonical after the v1 baseline; see `eval/METRICS_HISTORY.md`.
 
 ## Citations
 - Citations in the final API render from the manifest **`title`** field
