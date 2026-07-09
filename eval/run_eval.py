@@ -1,8 +1,9 @@
 """Evaluation harness for the RAG pipeline.
 
-Runs the (currently empty) pipeline over eval/dataset.jsonl and scores it with the four
-RAGAS metrics mandated by CLAUDE.md: faithfulness, answer_relevancy, context_precision,
-context_recall. Writes a timestamped JSON result to eval/results/ and traces to LangSmith.
+Runs the pipeline over eval/dataset.jsonl and scores it with the five canonical RAGAS metrics
+mandated by CLAUDE.md: faithfulness, answer_relevancy, context_precision, context_recall,
+answer_correctness. answer_correctness is scored against each row's `reference`. Writes a
+timestamped JSON result to eval/results/ and traces to LangSmith.
 
 RAGAS changes its dataset/metric API between releases, so this file targets the *installed*
 version's API (verified against ragas 0.4.3): SingleTurnSample / EvaluationDataset with columns
@@ -53,6 +54,7 @@ def main() -> None:
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import (
+        answer_correctness,
         answer_relevancy,
         context_precision,
         context_recall,
@@ -83,7 +85,7 @@ def main() -> None:
     llm = LangchainLLMWrapper(ChatOpenAI(model=judge_model, temperature=0))
     embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model=embed_model))
 
-    metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
+    metrics = [faithfulness, answer_relevancy, context_precision, context_recall, answer_correctness]
 
     result = evaluate(
         dataset=dataset,
