@@ -38,7 +38,8 @@ MANIFEST_PATH = REPO_ROOT / "data" / "manifest.json"
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
 EMBED_MAX_TOKENS = 8191  # text-embedding-3-small hard input limit; fail fast if a chunk exceeds it.
-EMBED_BATCH = 1000  # OpenAIEmbeddings default request batch size (for request-count accounting).
+EMBED_BATCH = 32  # items per embed request: <=32*8191 ~=262K tokens < OpenAI's 300K/request cap
+# (tabular docs like the NIOSH Pocket Guide yield huge pseudo-sentences). Also the accounting divisor.
 FIXED_CHUNK_SIZE = 500
 FIXED_CHUNK_OVERLAP = 50
 UPSERT_BATCH = 100
@@ -240,7 +241,7 @@ def main() -> None:
             zero_text_docs += [doc_id] if zero else []
             all_chunks += chunks
             print(f"  {doc_id:34s} {len(chunks):5d} chunks")
-        embedder = OpenAIEmbeddings(model=EMBED_MODEL)
+        embedder = OpenAIEmbeddings(model=EMBED_MODEL, chunk_size=EMBED_BATCH)
 
     else:  # semantic
         from langchain_experimental.text_splitter import SemanticChunker
@@ -265,7 +266,7 @@ def main() -> None:
               f"~{sum(est_tokens.values()):,} tok  (~${est_cost:.4f} for the sentence pass at "
               f"${EMBED_RATE_PER_1M}/1M as of {EMBED_RATE_DATE}; chunk-embed pass adds ~similar)")
 
-        counter = CountingEmbeddings(OpenAIEmbeddings(model=EMBED_MODEL))
+        counter = CountingEmbeddings(OpenAIEmbeddings(model=EMBED_MODEL, chunk_size=EMBED_BATCH))
         chunker = SemanticChunker(counter, breakpoint_threshold_type="percentile")
         for d in ingest_docs:
             doc_id, title = d["doc_id"], d["title"]
