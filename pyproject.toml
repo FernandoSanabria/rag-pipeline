@@ -10,6 +10,7 @@ dependencies = [
     "langchain==0.3.30",
     "langchain-community==0.3.31",
     "langchain-core==0.3.86",
+    "langchain-experimental==0.3.4",
     "langchain-openai==0.3.35",
     "openai==2.44.0",
     "pinecone==9.1.0",
