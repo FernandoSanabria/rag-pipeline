@@ -1,16 +1,19 @@
-"""Dense retrieval over the Pinecone namespace fixed_500_50.
+"""Dense retrieval over a configurable Pinecone namespace (default fixed_500_50).
 
 Embeds the query with text-embedding-3-small and returns the top-k chunks with their
 source_doc_id and (1-based) page. `format_contexts` produces the ONE canonical context
 representation that is used both in the generation prompt AND returned by the pipeline, so
 RAGAS grades exactly the text the model reasoned over.
+
+The retrieval namespace is read from settings.retrieval_namespace (env RETRIEVAL_NAMESPACE),
+defaulting to the v1 baseline "fixed_500_50" — this lets us A/B different chunking strategies
+(each in its own namespace) without editing code or the default.
 """
 
 from functools import lru_cache
 
 from langsmith import traceable
 
-NAMESPACE = "fixed_500_50"
 EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_K = 5  # explicit retrieval knob — fixed for the baseline, recorded in provenance; not tuned here.
 
@@ -35,9 +38,14 @@ def _index():
 @traceable(name="dense_search")
 def dense_search(query: str, k: int = DEFAULT_K) -> list[dict]:
     """Return up to k chunks as [{"text", "source_doc_id", "page"}], ordered by score."""
+    from src.config import get_settings
+
     vector = _embedder().embed_query(query)
     res = _index().query(
-        vector=vector, top_k=k, namespace=NAMESPACE, include_metadata=True
+        vector=vector,
+        top_k=k,
+        namespace=get_settings().retrieval_namespace,
+        include_metadata=True,
     )
     out = []
     for match in res["matches"]:

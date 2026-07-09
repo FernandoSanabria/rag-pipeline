@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
     index_name: str = Field(default="equip-docs-rag", alias="INDEX_NAME")
     llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
+    # Retrieval namespace — default = v1 baseline; override per-run via RETRIEVAL_NAMESPACE for A/B.
+    retrieval_namespace: str = Field(default="fixed_500_50", alias="RETRIEVAL_NAMESPACE")
 
 
 @lru_cache
@@ -41,6 +43,7 @@ if __name__ == "__main__":
     print(f"  COHERE_API_KEY       = {_mask(s.cohere_api_key)}")
     print(f"  INDEX_NAME           = {s.index_name}")
     print(f"  LLM_MODEL            = {s.llm_model}")
+    print(f"  RETRIEVAL_NAMESPACE  = {s.retrieval_namespace}")
 
     langsmith_ok = bool(s.langchain_api_key) and bool(s.langchain_project)
     print(
