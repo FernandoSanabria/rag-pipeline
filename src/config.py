@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
     # Retrieval namespace — default = v1 baseline; override per-run via RETRIEVAL_NAMESPACE for A/B.
     retrieval_namespace: str = Field(default="fixed_500_50", alias="RETRIEVAL_NAMESPACE")
+    # Retrieval depth (top-k). Fixed at 5 for v1/v2/v3; v4 measures k=10 via RETRIEVAL_K (A/B knob).
+    retrieval_k: int = Field(default=5, alias="RETRIEVAL_K")
 
 
 @lru_cache

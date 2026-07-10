@@ -61,6 +61,7 @@ def main() -> None:
         faithfulness,
     )
 
+    from src.config import get_settings
     from src.generate import generation_backends, reset_generation_backends
     from src.pipeline import ask
 
@@ -113,6 +114,7 @@ def main() -> None:
         print(f"  {col:20s} = {aggregate[col]}")
 
     print(f"\nGeneration backends this run: {gen_backends}")
+    print(f"Retrieval: namespace={get_settings().retrieval_namespace} k={get_settings().retrieval_k}")
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -123,6 +125,8 @@ def main() -> None:
         "judge_model": judge_model,
         "embedding_model": embed_model,
         "generation_backends": gen_backends,
+        "retrieval_namespace": get_settings().retrieval_namespace,
+        "retrieval_k": get_settings().retrieval_k,
         "langsmith_tracing": tracing_on,
         "langsmith_project": project,
         "n_rows": len(rows),

@@ -197,7 +197,7 @@ def main():
     iso = datetime.strptime(ts, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
     record = {
         "metrics_history_row": args.label, "change": args.change_note,
-        "namespace": args.namespace, "namespace_vector_count": ns_count, "top_k_configured": 5,
+        "namespace": args.namespace, "namespace_vector_count": ns_count, "top_k_configured": raw.get("retrieval_k", 5),
         "generation_model": {
             "alias": args.gen_model,
             "resolved": (run_gen["model_name"] if run_gen else gen["resolved"]),
