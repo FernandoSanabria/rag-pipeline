@@ -15,8 +15,9 @@ import logging
 
 from langsmith import traceable
 
+from src.config import get_settings
 from src.generate import generate
-from src.retrieve import DEFAULT_K, dense_search, format_contexts
+from src.retrieve import dense_search, format_contexts
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 def ask(question: str) -> dict:
     contexts: list[str] = []
     try:
-        retrieved = dense_search(question, k=DEFAULT_K)
+        retrieved = dense_search(question, k=get_settings().retrieval_k)
         contexts = format_contexts(retrieved)
         answer = generate(question, contexts)
         if not answer:
