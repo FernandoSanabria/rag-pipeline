@@ -42,6 +42,8 @@ EMBED_BATCH = 32  # items per embed request: <=32*8191 ~=262K tokens < OpenAI's 
 # (tabular docs like the NIOSH Pocket Guide yield huge pseudo-sentences). Also the accounting divisor.
 EMBED_TIMEOUT = 30.0  # per-request timeout (s) — a stalled keep-alive socket must fail fast, not hang.
 EMBED_MAX_RETRIES = 6  # retry timed-out/failed embed requests instead of blocking forever.
+MAX_CHUNK_CHARS = 6000  # cap: sub-split oversized semantic chunks (tabular blobs w/o sentence
+# breaks) — ~1.5K tokens, safe under the 8191-token embed limit and Pinecone's ~40KB metadata cap.
 FIXED_CHUNK_SIZE = 500
 FIXED_CHUNK_OVERLAP = 50
 UPSERT_BATCH = 100
@@ -144,7 +146,7 @@ def build_chunks_semantic(chunker, doc_id: str, title: str, pages):
         cursor += n
     full_text = "\n".join(t for _, t in pages)
     if len(_norm(full_text)) == 0:
-        return [], True
+        return [], True, 0
 
     norm_full = _norm(full_text)
     page_count = pages[-1][0] if pages else 1
@@ -155,25 +157,33 @@ def build_chunks_semantic(chunker, doc_id: str, title: str, pages):
                 return pg
         return spans[-1][2]
 
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    sub = RecursiveCharacterTextSplitter(chunk_size=MAX_CHUNK_CHARS, chunk_overlap=0)
     pieces = chunker.split_text(full_text)
-    chunks, search = [], 0
-    ci = 0
+    chunks, search, ci, n_oversized = [], 0, 0, 0
     for piece in pieces:
         if not piece.strip():
             continue
-        npiece = _norm(piece)
-        probe = npiece[:40] or npiece
-        idx = norm_full.find(probe, search)
-        if idx == -1:
-            idx = norm_full.find(probe)  # fallback: global
-        if idx == -1:
-            idx = search  # last resort
-        page = page_at(idx)
-        search = idx + max(1, len(npiece))
-        meta = {"source_doc_id": doc_id, "title": title, "page": page,
-                "chunk_index": ci, "text": piece}
-        chunks.append((f"{doc_id}-p{page}-{ci}", piece, meta))
-        ci += 1
+        # Cap: sub-split pathological oversized chunks (tabular blobs) with a fixed splitter.
+        subpieces = [piece]
+        if len(piece) > MAX_CHUNK_CHARS:
+            n_oversized += 1
+            subpieces = [sp for sp in sub.split_text(piece) if sp.strip()]
+        for sp in subpieces:
+            nsp = _norm(sp)
+            probe = nsp[:40] or nsp
+            idx = norm_full.find(probe, search)
+            if idx == -1:
+                idx = norm_full.find(probe)  # fallback: global
+            if idx == -1:
+                idx = search  # last resort
+            page = page_at(idx)
+            search = idx + max(1, len(nsp))
+            meta = {"source_doc_id": doc_id, "title": title, "page": page,
+                    "chunk_index": ci, "text": sp}
+            chunks.append((f"{doc_id}-p{page}-{ci}", sp, meta))
+            ci += 1
 
     # Page-monotonicity + in-range assert (ALL docs) — guards cursor latching on boilerplate.
     assigned = [c[2]["page"] for c in chunks]
@@ -181,7 +191,7 @@ def build_chunks_semantic(chunker, doc_id: str, title: str, pages):
         raise RuntimeError(f"{doc_id}: assigned page out of [1,{page_count}]: {assigned}")
     if any(assigned[i] > assigned[i + 1] for i in range(len(assigned) - 1)):
         raise RuntimeError(f"{doc_id}: start-pages not non-decreasing: {assigned}")
-    return chunks, False
+    return chunks, False, n_oversized
 
 
 class CountingEmbeddings:
@@ -276,13 +286,16 @@ def main() -> None:
             timeout=EMBED_TIMEOUT, max_retries=EMBED_MAX_RETRIES,
         ))
         chunker = SemanticChunker(counter, breakpoint_threshold_type="percentile")
+        oversized_total = 0
         for d in ingest_docs:
             doc_id, title = d["doc_id"], d["title"]
-            chunks, zero = build_chunks_semantic(chunker, doc_id, title, loaded[doc_id])
+            chunks, zero, n_over = build_chunks_semantic(chunker, doc_id, title, loaded[doc_id])
+            oversized_total += n_over
             per_doc_counts[doc_id] = len(chunks)
             zero_text_docs += [doc_id] if zero else []
             all_chunks += chunks
-            print(f"  {doc_id:34s} {len(chunks):5d} chunks")
+            print(f"  {doc_id:34s} {len(chunks):5d} chunks" + (f"  ({n_over} oversized sub-split)" if n_over else ""))
+        print(f"\nOversized semantic chunks sub-split (>{MAX_CHUNK_CHARS} chars): {oversized_total}")
         sent_items, sent_reqs = counter.items, counter.requests  # snapshot: sentence embeds
         embedder = counter
 
