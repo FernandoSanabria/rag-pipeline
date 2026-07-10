@@ -10,6 +10,7 @@ be misattributed to a chunking/retrieval change).
 """
 
 import logging
+from collections import Counter
 from functools import lru_cache
 
 from langsmith import traceable
@@ -42,6 +43,24 @@ SYSTEM_PROMPT = (
 
 _logged_model = False
 
+# Backend identity actually seen on generation calls this run — persisted by run_eval into result
+# provenance so score deltas attach to the fingerprint AT CAPTURE TIME, not a post-hoc probe.
+# gpt-4o-mini is a floating alias; system_fingerprint drifts between runs. >1 entry = mid-run drift.
+_generation_backends: Counter = Counter()
+
+
+def reset_generation_backends() -> None:
+    """Clear the per-run backend accumulator (call once before an eval run)."""
+    _generation_backends.clear()
+
+
+def generation_backends() -> list[dict]:
+    """Distinct (resolved model_name, system_fingerprint) seen since reset, with call counts."""
+    return [
+        {"model_name": model_name, "system_fingerprint": fingerprint, "n_calls": n}
+        for (model_name, fingerprint), n in sorted(_generation_backends.items(), key=lambda kv: -kv[1])
+    ]
+
 
 @lru_cache(maxsize=1)
 def _llm():
@@ -66,12 +85,15 @@ def generate(question: str, context_strings: list[str]) -> str:
         ("human", f"Context:\n{context_block}\n\nQuestion: {question}"),
     ]
     response = _llm().invoke(messages)
+    meta = getattr(response, "response_metadata", {}) or {}
+    model_name = meta.get("model_name")
+    system_fingerprint = meta.get("system_fingerprint")
+    _generation_backends[(model_name, system_fingerprint)] += 1
     if not _logged_model:
-        meta = getattr(response, "response_metadata", {}) or {}
         logger.info(
             "generator resolved model=%s system_fingerprint=%s seed=%s",
-            meta.get("model_name"),
-            meta.get("system_fingerprint"),
+            model_name,
+            system_fingerprint,
             MODEL_SEED,
         )
         _logged_model = True

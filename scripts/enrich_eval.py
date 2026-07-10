@@ -114,6 +114,8 @@ def main():
     load_dotenv(REPO / ".env")
     eval_file = args.eval_file or max(glob.glob(str(RESULTS / "eval_*.json")), key=os.path.getmtime)
     raw = json.loads(Path(eval_file).read_text())
+    run_backends = raw.get("generation_backends")  # real per-run backend, persisted by run_eval (absent in pre-fix runs)
+    run_gen = run_backends[0] if run_backends else None
     per_row = raw["per_row"]
     rows_evaluated = len(per_row)
     assert rows_evaluated == raw["n_rows"], f"row mismatch {rows_evaluated}/{raw['n_rows']}"
@@ -196,7 +198,15 @@ def main():
     record = {
         "metrics_history_row": args.label, "change": args.change_note,
         "namespace": args.namespace, "namespace_vector_count": ns_count, "top_k_configured": 5,
-        "generation_model": {"alias": args.gen_model, "resolved": gen["resolved"], "seed": args.gen_seed, "system_fingerprint": gen["system_fingerprint"]},
+        "generation_model": {
+            "alias": args.gen_model,
+            "resolved": (run_gen["model_name"] if run_gen else gen["resolved"]),
+            "seed": args.gen_seed,
+            "system_fingerprint": (run_gen["system_fingerprint"] if run_gen else gen["system_fingerprint"]),
+            "system_fingerprint_source": ("run" if run_gen else "enrich_probe_fallback"),
+        },
+        "generation_backends_at_run": run_backends,
+        "generation_probe_at_enrich": gen,
         "judge_model": {"alias": args.judge_model, "resolved": jud["resolved"], "seed": None, "system_fingerprint": jud["system_fingerprint"]},
         "ragas_version": raw["ragas_version"], "git_commit": commit,
         "git_pipeline_clean": True, "git_tree_dirty_incl_tooling": tree_dirty,
@@ -214,7 +224,10 @@ def main():
     out.write_text(json.dumps(record, indent=2), encoding="utf-8")
 
     print(f"WROTE {out.name} | rows {rows_evaluated} | commit {commit[:12]} | pipeline_clean=True tree_dirty={tree_dirty} | ns {ns_count}")
-    print(f"gen fp {gen['system_fingerprint']} | judge fp {jud['system_fingerprint']}")
+    run_fp = run_gen["system_fingerprint"] if run_gen else None
+    print(f"gen fp (run) {run_fp} | gen fp (enrich-probe) {gen['system_fingerprint']} | judge fp {jud['system_fingerprint']}")
+    if run_backends and len(run_backends) > 1:
+        print(f"  NOTE: {len(run_backends)} distinct generation fingerprints mid-run: {run_backends}")
     print(f"\n=== AGGREGATE {args.label} vs {args.baseline} ===")
     print(f"{'metric':20s} {args.label:>9s} {'base':>9s} {'delta':>9s}")
     for m in METRICS:

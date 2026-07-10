@@ -61,11 +61,13 @@ def main() -> None:
         faithfulness,
     )
 
+    from src.generate import generation_backends, reset_generation_backends
     from src.pipeline import ask
 
     rows = _load_dataset(DATASET_PATH)
     print(f"Loaded {len(rows)} rows from {DATASET_PATH.relative_to(REPO_ROOT)}")
 
+    reset_generation_backends()
     samples = []
     for row in rows:
         question = row.get("question") or row.get("user_input")
@@ -79,6 +81,7 @@ def main() -> None:
             )
         )
     dataset = EvaluationDataset(samples=samples)
+    gen_backends = generation_backends()
 
     judge_model = "gpt-4o-mini"
     embed_model = "text-embedding-3-small"
@@ -109,6 +112,8 @@ def main() -> None:
     for col in metric_cols:
         print(f"  {col:20s} = {aggregate[col]}")
 
+    print(f"\nGeneration backends this run: {gen_backends}")
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_path = RESULTS_DIR / f"eval_{timestamp}.json"
@@ -117,6 +122,7 @@ def main() -> None:
         "timestamp_utc": timestamp,
         "judge_model": judge_model,
         "embedding_model": embed_model,
+        "generation_backends": gen_backends,
         "langsmith_tracing": tracing_on,
         "langsmith_project": project,
         "n_rows": len(rows),
