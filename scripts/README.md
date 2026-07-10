@@ -14,6 +14,7 @@ uv run python scripts/<name>.py
 | `smoke_test.py` | End-to-end sanity check of `src.pipeline.ask()` on a few representative questions (including one hard multi-page case). Asserts the return shape `{"answer": str, "contexts": list[str]}` and prints retrieved `source_doc_id`/`page` + the answer. |
 | `extract_pages.py` | Dumps per-page, NFKC-normalized text for every `data/manifest.json` doc into `scratchpad/pages/<doc_id>.txt` (with `===== <doc_id> PAGE n/N =====` markers). |
 | `verify_eval_tokens.py` | Checks that each eval candidate's `key_value_token` actually appears on its cited page. Reads the dumps from `extract_pages.py`. Usage: `uv run python scripts/verify_eval_tokens.py <candidates.json>`. |
+| `enrich_eval.py` | Turns a raw `run_eval.py` output into a versioned metrics-history record (`eval/results/<prefix>_<ts>.json`, gitignored) + report: dual-model provenance, per-category aggregates, Δ vs a chosen baseline, a 3-way refusal-integrity audit (exact / near-miss / attempt), per-row correctness diff, and an optional prediction check. Reused each optimization round (v3/v4/…). See `--help` for args. |
 
 ## Notes
 - `extract_pages.py` writes to `scratchpad/`, which is **gitignored** — the dumps are regenerable on
