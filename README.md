@@ -59,20 +59,20 @@ This creates the virtualenv, installs all pinned dependencies, **and editable-in
 
 ## Usage
 
-Run everything from the repo root via `uv run`. The **shipped** configuration is the `semantic` namespace at depth **k=10** (the `v4` row above). The config defaults in [`src/config.py`](src/config.py) are still the v1 baseline (`RETRIEVAL_NAMESPACE=fixed_500_50`, `RETRIEVAL_K=5`), so the shipped config is selected with the two env overrides shown:
+Run everything from the repo root via `uv run`. The **shipped** configuration — the `semantic` namespace at depth **k=10** (the `v4` row above) — is now the default in [`src/config.py`](src/config.py) (`RETRIEVAL_NAMESPACE=semantic`, `RETRIEVAL_K=10`), so eval and the API need no retrieval overrides. Ingestion still selects semantic chunking explicitly, because `CHUNKING_STRATEGY` is an ingest-only knob that still defaults to `fixed_500_50`:
 
 ```bash
-# Ingest the corpus into Pinecone — shipped (semantic) namespace
+# Ingest the corpus into Pinecone — shipped (semantic) namespace (CHUNKING_STRATEGY defaults to fixed_500_50)
 CHUNKING_STRATEGY=semantic uv run python src/ingest.py
 
-# Evaluate the shipped pipeline (semantic namespace, k=10) with RAGAS over eval/dataset.jsonl
-RETRIEVAL_NAMESPACE=semantic RETRIEVAL_K=10 uv run python eval/run_eval.py
+# Evaluate the shipped pipeline (semantic namespace, k=10) with RAGAS over eval/dataset.jsonl — uses the config defaults
+uv run python eval/run_eval.py
 
 # Quick end-to-end sanity check of ask()
 uv run python scripts/smoke_test.py
 ```
 
-The v1 baseline ingests to the `fixed_500_50` namespace instead — `uv run python src/ingest.py` (the default `CHUNKING_STRATEGY`).
+To reproduce an earlier baseline, override the retrieval env vars — e.g. the v1 baseline is `RETRIEVAL_NAMESPACE=fixed_500_50 RETRIEVAL_K=5 uv run python eval/run_eval.py`, ingested to `fixed_500_50` via the default `CHUNKING_STRATEGY` (`uv run python src/ingest.py`).
 
 ## Reproducibility
 
