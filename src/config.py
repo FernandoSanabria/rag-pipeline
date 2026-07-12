@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
     index_name: str = Field(default="equip-docs-rag", alias="INDEX_NAME")
     llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
-    # Retrieval namespace — default = v1 baseline; override per-run via RETRIEVAL_NAMESPACE for A/B.
-    retrieval_namespace: str = Field(default="fixed_500_50", alias="RETRIEVAL_NAMESPACE")
-    # Retrieval depth (top-k). Fixed at 5 for v1/v2/v3; v4 measures k=10 via RETRIEVAL_K (A/B knob).
-    retrieval_k: int = Field(default=5, alias="RETRIEVAL_K")
+    # Retrieval namespace — default = shipped v4 config (semantic). Override via RETRIEVAL_NAMESPACE
+    # for the eval A/B (e.g. fixed_500_50 for the v1/v2 baselines).
+    retrieval_namespace: str = Field(default="semantic", alias="RETRIEVAL_NAMESPACE")
+    # Retrieval depth (top-k) — default = shipped v4 config (10). Override via RETRIEVAL_K for the
+    # eval A/B (e.g. 5 for the v1/v2/v3 runs).
+    retrieval_k: int = Field(default=10, alias="RETRIEVAL_K")
 
 
 @lru_cache
@@ -46,6 +48,7 @@ if __name__ == "__main__":
     print(f"  INDEX_NAME           = {s.index_name}")
     print(f"  LLM_MODEL            = {s.llm_model}")
     print(f"  RETRIEVAL_NAMESPACE  = {s.retrieval_namespace}")
+    print(f"  RETRIEVAL_K          = {s.retrieval_k}")
 
     langsmith_ok = bool(s.langchain_api_key) and bool(s.langchain_project)
     print(
