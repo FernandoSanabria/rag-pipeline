@@ -31,8 +31,8 @@ def main() -> None:
     print(f"retrieval knob: k={DEFAULT_K}\n" + "=" * 70)
     for label, q in QUESTIONS:
         res = ask(q)
-        # shape assertions — ask() must always return {"answer": str, "contexts": list[str]}
-        assert isinstance(res, dict) and set(res) == {"answer", "contexts"}, f"bad shape: {res.keys()}"
+        # shape assertions — ask() must return at least {"answer": str, "contexts": list[str]} (+ "chunks" for the API)
+        assert isinstance(res, dict) and {"answer", "contexts"} <= set(res), f"bad shape: {res.keys()}"
         assert isinstance(res["answer"], str), "answer not str"
         assert isinstance(res["contexts"], list) and all(
             isinstance(c, str) for c in res["contexts"]
@@ -45,7 +45,7 @@ def main() -> None:
         print("ANSWER:", res["answer"][:600])
 
     print("\n" + "=" * 70)
-    print("shape assertions passed: {'answer': str, 'contexts': list[str]}")
+    print("shape assertions passed: ask() returns at least {'answer': str, 'contexts': list[str]}")
     tracing = os.environ.get("LANGCHAIN_TRACING_V2", "").lower() in {"1", "true", "yes"}
     print(
         f"LangSmith tracing: {'ON' if tracing else 'OFF'} "
