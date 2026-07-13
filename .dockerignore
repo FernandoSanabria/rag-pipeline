@@ -1,0 +1,30 @@
+# Keep the build context small AND keep secrets / copyrighted material out of the image.
+# The Dockerfile COPYs only pyproject.toml, uv.lock, src/, api/, and data/manifest.json.
+
+.git
+.gitignore
+.venv
+
+# secrets — must never reach the image
+.env
+.env.*
+
+# corpus: PDFs are copyrighted / not needed at runtime. data/manifest.json IS copied by the Dockerfile.
+data/public/
+data/raw/
+data/processed/
+data/**/*.pdf
+
+# eval artifacts (retrieved-context snapshots) and dev-only trees
+eval/
+tests/
+scripts/
+.pytest_cache/
+.ruff_cache/
+
+# python / editor cruft
+__pycache__/
+**/__pycache__/
+*.pyc
+*.md
+.python-version
