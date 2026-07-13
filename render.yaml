@@ -1,0 +1,19 @@
+# Render Blueprint — deploy the FastAPI service as a Docker web service.
+# Deploy is the operator's action: connect the repo in the Render dashboard (or `render blueprint
+# launch`), then set the two secret values below. This file contains NO secret values.
+services:
+  - type: web
+    name: equip-docs-rag-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false            # set in the Render dashboard / secret store; never committed
+      - key: PINECONE_API_KEY
+        sync: false            # set in the Render dashboard / secret store; never committed
+      - key: INDEX_NAME
+        value: equip-docs-rag
+      # RETRIEVAL_NAMESPACE / RETRIEVAL_K are omitted on purpose — the shipped defaults
+      # (semantic / k=10) live in src/config.py, so the served config needs no overrides.
