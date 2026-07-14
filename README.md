@@ -1,5 +1,7 @@
 # evaluation-driven RAG over an industrial-equipment-safety corpus
 
+[![CI](https://github.com/FernandoSanabria/rag-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/FernandoSanabria/rag-pipeline/actions/workflows/ci.yml)
+
 A retrieval-augmented generation pipeline that answers questions about industrial-equipment-safety documents — OSHA/EPA/NIOSH regulations, chemical safety data sheets, and equipment manuals — built **evaluation-first**: the RAGAS harness was stood up before any retrieval or generation logic, and every change since was measured against it one variable at a time.
 
 ## What this demonstrates
