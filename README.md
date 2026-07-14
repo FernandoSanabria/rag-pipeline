@@ -36,7 +36,7 @@ Indicative `/ask` latency, measured **warm** against the live free-tier service 
 
 **Cold-start is excluded — and isn't the headline.** A free-tier service spins down after ~15 min idle, so the first hit after a gap is slow (measured: `/health` ~43s to wake, first `/ask` after wake ~17s). A scheduled [keep-warm ping](.github/workflows/keepalive.yml) mitigates spin-down but keeps only the *process* warm, so a first `/ask` after a long gap can still pay some pipeline-init cost.
 
-**Generation dominates.** A local retrieval-vs-generation split (k=10, no network hop) shows mean retrieval 1.6s vs generation 4.2s (~3×, up to ~88% on long procedural answers) — the bulk of `/ask` time is the `gpt-4o-mini` call, not retrieval. Latency tracks answer length: fastest was the one-line refusal (1.7s), slowest the multi-step lockout/tagout sequence (13.2s).
+**Generation dominates — take the _ratio_, not the seconds.** A separate local probe (n=4, k=10, run from a different machine with its own network path to OpenAI) splits the pipeline into retrieval ~1.6s vs generation ~4.2s: generation is **~3×** retrieval (up to ~88% on long procedural answers), so the bulk of `/ask` is the `gpt-4o-mini` call, not retrieval. Those absolute seconds intentionally **do not reconcile** with the deployed table above — their sum (~5.8s) even exceeds the 3.7s deployed P50 — because this is a smaller, different-infrastructure sample skewed toward the slow procedural questions, whereas the deployed P50 is a median over 18 that includes fast one-liners. Take only the ratio from it. On the deployed service, latency tracks answer length: fastest was the one-line refusal (1.7s), slowest the lockout/tagout sequence (13.2s).
 
 ## Results
 
