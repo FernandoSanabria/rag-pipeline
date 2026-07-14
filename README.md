@@ -8,6 +8,24 @@ A retrieval-augmented generation pipeline that answers questions about industria
 
 The interesting part isn't "a RAG pipeline" — it's the method used to improve one. Each change was **pre-registered**: a written, falsifiable prediction committed to the repo *before* the eval ran (`eval/run_notes_*.md`). Changes were made **one variable at a time**, so every metric delta is attributable to a single cause. The **arbiter was the raw artifact** — the actual retrieved contexts and generated responses — not the aggregate score, which repeatedly misled (RAGAS `context_recall` returned `1.0` on rows where the answer chunk had not been retrieved at all). And two more-complex retrieval levers — a BM25-fusion fix for one stubborn cross-document row, then full hybrid (BM25 + dense) retrieval — were **falsified by read-only rank probes _before_ any eval run was spent on them**, because the probes showed a plain increase in retrieval depth strictly dominated both. The shipped pipeline is therefore *simpler* than the one originally planned: complexity was removed by evidence, not added on faith.
 
+## Live demo
+
+A deployed instance is live at **https://equip-docs-rag-api.onrender.com** (`POST /ask`, `GET /health`):
+
+```bash
+curl -s -X POST https://equip-docs-rag-api.onrender.com/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"In an ammonia refrigeration system, why is a vapor-space rupture unlikely to be the worst-case release compared to a liquid release?"}'
+```
+
+Every answer is a typed contract — `answer`, `citations: [{document, page}]`, `confidence_score`, `confidence_basis` — so a caller gets the grounded answer, its sources, and a plain-language reason for the confidence.
+
+**Honest refusal, never fabrication.** Ask something outside the corpus (`{"question": "What is the capital of France?"}`) and the service returns the exact refusal sentence with `confidence_score` 0.25 and empty `citations` — it declines rather than inventing an answer.
+
+**Citations come from retrieval metadata, not the model's prose.** In one live response the model's prose cited *page 17* while the structured `citations` field returned *page 23* — the retrieved chunk's true page. Because `{document, page}` is derived from chunk metadata (never parsed from the answer text), the page a reader is sent to is correct by construction even when the model mis-cites itself. (The in-prose page isn't stable across runs; the metadata page is deterministic.)
+
+_Free tier:_ the first request after idle cold-starts in ~30–60s; warm requests are fast. `GET /health` → `{"status":"ok"}`.
+
 ## Results
 
 Five RAGAS metrics, scored against a hand-verified reference answer for each of the 28 eval questions. Each row is one measured change from a clean commit; full per-step deltas, the pre-registered prediction, and findings live in [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).
