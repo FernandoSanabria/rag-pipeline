@@ -7,6 +7,8 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    branch: main             # deploys from main (the protected branch)
+    autoDeploy: true         # auto-deploy on every push to main (safe: main is branch-protected)
     healthCheckPath: /health
     envVars:
       - key: OPENAI_API_KEY
