@@ -1,0 +1,31 @@
+name: keep-warm
+
+# Pings the free-tier Render service so it doesn't spin down (Render idles a free service after ~15 min).
+# GitHub's scheduled minimum is ~5 min and scheduled runs can be delayed under load, so a ~10-min target
+# leaves a safe margin against the ~15-min spin-down.
+#
+# NOTE: this keeps the PROCESS warm; it does NOT exercise retrieval/generation. So the first /ask after
+# an idle gap may still pay some pipeline-init cost even when the process is "warm" — the latency note
+# in the README is framed accordingly.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every ~10 minutes
+  workflow_dispatch: {}       # allow manual runs
+
+jobs:
+  ping:
+    name: ping-health
+    runs-on: ubuntu-latest
+    steps:
+      - name: GET /health (tolerate cold-start non-200)
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 \
+            https://equip-docs-rag-api.onrender.com/health || true)
+          echo "GET /health -> HTTP ${code}"
+          if [ "$code" = "200" ]; then
+            echo "service warm (200)"
+          else
+            # A 502/000 during wake-up is expected on free tier, not an alarm — log, don't fail.
+            echo "::warning::/health returned '${code}' — likely a cold-start wake-up; not failing the workflow"
+          fi
