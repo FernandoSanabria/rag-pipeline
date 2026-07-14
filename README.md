@@ -26,6 +26,18 @@ Every answer is a typed contract — `answer`, `citations: [{document, page}]`, 
 
 _Free tier:_ the first request after idle cold-starts in ~30–60s; warm requests are fast. `GET /health` → `{"status":"ok"}`.
 
+## Performance
+
+Indicative `/ask` latency, measured **warm** against the live free-tier service (n=18 varied questions, single session — a rough read, not a rigorous benchmark):
+
+| warm `/ask` — client-side, end-to-end | P50 | P95 | min / mean / max |
+|---|--:|--:|--:|
+| network + free-tier host + full pipeline | **3.7s** | **11.0s** | 1.7 / 4.7 / 13.2s |
+
+**Cold-start is excluded — and isn't the headline.** A free-tier service spins down after ~15 min idle, so the first hit after a gap is slow (measured: `/health` ~43s to wake, first `/ask` after wake ~17s). A scheduled [keep-warm ping](.github/workflows/keepalive.yml) mitigates spin-down but keeps only the *process* warm, so a first `/ask` after a long gap can still pay some pipeline-init cost.
+
+**Generation dominates.** A local retrieval-vs-generation split (k=10, no network hop) shows mean retrieval 1.6s vs generation 4.2s (~3×, up to ~88% on long procedural answers) — the bulk of `/ask` time is the `gpt-4o-mini` call, not retrieval. Latency tracks answer length: fastest was the one-line refusal (1.7s), slowest the multi-step lockout/tagout sequence (13.2s).
+
 ## Results
 
 Five RAGAS metrics, scored against a hand-verified reference answer for each of the 28 eval questions. Each row is one measured change from a clean commit; full per-step deltas, the pre-registered prediction, and findings live in [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).
