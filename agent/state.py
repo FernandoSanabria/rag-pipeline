@@ -11,14 +11,17 @@ A LangGraph channel with NO reducer is *last-write-wins* (overwrite). A channel 
 `Annotated[T, add]` is *accumulate* (the reducer merges the prior value with each node's
 return instead of replacing it). Two fields accumulate; the rest overwrite:
 
-  field          reducer        why
-  question       overwrite      set once at entry, read-only thereafter
-  sub_questions  overwrite      produced whole by ONE node (decompose); no fan-in
-  route          overwrite      routing decision; single writer (router node, 2B)
-  retrieved      add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches
-  answer         overwrite      produced by ONE node (generate); no fan-in
-  citations      overwrite      derived once from the deduped context; no fan-in
-  trace_notes    add (ACCUM)    every node (incl. parallel branches) appends a breadcrumb
+EIGHT channels — six overwrite, two accumulate:
+
+  field            reducer        why
+  question         overwrite      set once at entry, read-only thereafter
+  sub_questions    overwrite      produced whole by ONE node (decompose); no fan-in
+  route            overwrite      routing decision; single writer (router node, 2B)
+  retrieval_error  overwrite      True only when retrieve_node caught an exception; single writer
+  retrieved        add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches
+  answer           overwrite      produced by ONE node (generate); no fan-in
+  citations        overwrite      derived once from the deduped context; no fan-in
+  trace_notes      add (ACCUM)    every node (incl. parallel branches) appends a breadcrumb
 
 Why `retrieved` MUST accumulate (the #1 silent LangGraph bug)
 -------------------------------------------------------------
@@ -40,12 +43,12 @@ each append theirs; `add` preserves all of them. Overwrite would keep only the l
 and destroy the path record. Tradeoff: the list grows unbounded within a run — acceptable, a
 single request is short-lived; it is never persisted across requests (see invariant (a)).
 
-Why the other five overwrite: each is written by exactly ONE node on any given path, so there
+Why the other six overwrite: each is written by exactly ONE node on any given path, so there
 is no fan-in to merge. Overwrite is the simplest correct choice; its only hazard is that two
-*concurrent* branches writing the same channel would conflict — none of these five are ever
+*concurrent* branches writing the same channel would conflict — none of these six are ever
 written from a parallel branch (only `retrieved` and `trace_notes` are), so overwrite is safe.
 Using `add` on them instead would be actively wrong: re-running a node (e.g. a retry) would
-append a second `answer`/`sub_questions`/`route` rather than replace it.
+append a second `answer`/`sub_questions`/`route`/`retrieval_error` rather than replace it.
 
 CAUTION — the `add` reducer turns a node-level RETRY into an APPEND, not a replace.
 A retried `retrieve_node` under `add` would DOUBLE `retrieved` (and re-append its
@@ -92,6 +95,7 @@ class AgentState(TypedDict):
     question: str                              # original user question — set at entry, read-only after
     sub_questions: list[str]                   # decomposition output; [] when not decomposed (v4 path)
     route: str                                 # "direct" | "decomposed" — routing decision (single writer: router, 2B)
+    retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
     retrieved: Annotated[list[dict], add]      # ACCUMULATE across parallel sub-query retrievals
     answer: str                                # final grounded answer (single writer: generate)
     citations: list[dict]                      # stays [] in 2A — API layer owns citations (see below)
@@ -113,20 +117,29 @@ class AgentState(TypedDict):
 # node return vs. a separate conditional-edge function — same doc-verification discipline as
 # Send. Either way `route` stays in state for the eval assertion.)
 
+# `retrieval_error` is the sentinel that lets generate_node mirror src.pipeline.ask's failure
+# behavior EXACTLY. pipeline.ask wraps retrieve+generate in one try/except, so a dense_search
+# EXCEPTION returns answer="" WITHOUT calling generate (no LLM cost), contexts=chunks=[]. A
+# *legitimate* empty retrieval (no matches, no exception) is different: pipeline still calls
+# generate over empty context (→ refusal). `not retrieved` cannot distinguish the two; this
+# explicit flag can — retrieve_node sets it True only in its except-path, and generate_node
+# short-circuits to answer="" only when it is True. Single writer (retrieve_node), overwrite.
+
 
 def fresh_state(question: str) -> AgentState:
     """Build a brand-new AgentState for a single invocation (invariant (a)).
 
-    Initializes ALL SEVEN channels explicitly, so no node ever reads an unset channel and
+    Initializes ALL EIGHT channels explicitly, so no node ever reads an unset channel and
     KeyErrors. The accumulators (`retrieved`, `trace_notes`) start EMPTY so no evidence leaks
-    in from a prior call, and `route` defaults to "direct" (the 2A / v4 path). The entry adapter
-    that wraps the graph (to mirror src.pipeline.ask's per-question contract) MUST call this per
-    question; never reuse a returned dict across dataset rows.
+    in from a prior call, `route` defaults to "direct" (the 2A / v4 path), and `retrieval_error`
+    defaults to False. The entry adapter that wraps the graph (to mirror src.pipeline.ask's
+    per-question contract) MUST call this per question; never reuse a returned dict across rows.
     """
     return AgentState(
         question=question,
         sub_questions=[],
         route="direct",
+        retrieval_error=False,
         retrieved=[],
         answer="",
         citations=[],
