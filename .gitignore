@@ -8,3 +8,8 @@ eval/results/*
 !eval/results/.gitkeep
 scratchpad/
 .DS_Store
+
+# same-process A/B repro probe (scratch — not committed)
+scripts/ab_repro_probe.py
+scripts/ab_repro_probe_result.json
+scripts/ab_repro_probe_control_result.json
