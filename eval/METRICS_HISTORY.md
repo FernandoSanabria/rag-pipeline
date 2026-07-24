@@ -29,11 +29,13 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
   cleared; the probe scripts are gitignored scratch). (2) METRIC-reproduction (this row, `PIPELINE=
   agent`): all five RAGAS metrics within ±0.03 of committed v4, on the SAME primary fingerprint
   `fp_6cc92eaef9` v4 was produced under (no drift caveat). Concentration analysis (Step 4) was NOT
-  triggered — `answer_correctness` moved +0.0224, inside the band. CAVEAT: judge-side timeouts /
-  rate-limits + "1 generation instead of 3" this run dropped rows to NaN (RAGAS
-  `raise_exceptions=False`), so faithfulness is a mean over 25/28 (rows 8,9,13 dropped) and
-  context_recall over 24/28 (8,9,10,14) — a judge-infra noise source (not generation), which partly
-  explains faithfulness's −0.015 as a denominator mismatch vs v4's mean. `graph.py` was NOT touched
+  triggered — `answer_correctness` moved +0.0224, inside the band. FAITHFULNESS −0.015, decomposed
+  (measured, no API calls): judge-side timeouts/rate-limits + "1 generation instead of 3" dropped
+  rows to NaN (RAGAS `raise_exceptions=False`) — faithfulness over 25/28 (rows 8,9,13, all v4=1.0),
+  recall over 24/28 (8,9,10,14). A LIKE-FOR-LIKE recompute over the 21-row intersection both runs
+  scored gives graph 0.9615 vs v4 0.9683, Δ **−0.0068** — so ~55% of the headline −0.0151 was a
+  denominator artifact (three v4=1.0 rows dropped from the graph mean only), and the residual −0.0068
+  sits within the faithfulness noise floor. Reproduction holds cleanly. `graph.py` was NOT touched
   in response to aggregate noise (5a already cleared plumbing). Producing code: commit `fec0958`
   (the additive, default-preserving PIPELINE switch); default/unset `PIPELINE` still runs v4 byte-for-byte.
 - **METHODOLOGY — run-to-run variance & backend drift (applies to every row).** temp=0/seed=42 is
