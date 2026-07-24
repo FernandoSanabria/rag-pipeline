@@ -50,10 +50,16 @@ def test_direct_path_route_and_trace_notes(monkeypatch):
 
     assert state["route"] == "direct"
     assert state["retrieval_error"] is False
+
+    # trace_notes is the in-state PATH RECORD — the 2A observability gate independent of LangSmith,
+    # and exactly what 2B's regression guard reads to prove "simple rows took the direct path
+    # unchanged". Assert the path by RELATIONSHIP (retrieve precedes generate), not fixed indices,
+    # so it survives 2B inserting decompose/synthesize/router breadcrumbs between them. next() also
+    # asserts each breadcrumb is present (StopIteration → test failure if a node went silent).
     notes = state["trace_notes"]
-    assert len(notes) == 2  # one breadcrumb per node, in path order
-    assert notes[0].startswith("retrieve[direct]:")
-    assert notes[1].startswith("generate:")
+    retrieve_idx = next(i for i, n in enumerate(notes) if n.startswith("retrieve[direct]:"))
+    generate_idx = next(i for i, n in enumerate(notes) if n.startswith("generate:"))
+    assert retrieve_idx < generate_idx
 
 
 def test_add_reducer_accumulates_across_two_writers():
