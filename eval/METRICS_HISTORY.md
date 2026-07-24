@@ -15,8 +15,27 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 | Δ v3−v2 | | +0.0908 | +0.0515 | +0.0125 | +0.0218 | **−0.0024** | | |
 | v4 | dense retrieval, semantic ns, **k=10** (`RETRIEVAL_K`); prompt/chunking UNCHANGED | 0.9697 | 0.8489 | 0.7589 | 0.9374 | **0.5667** | `5e742d2` | `v4_densek10_20260710T235333Z` + `…000441Z` (k=10, 2× mean) |
 | Δ v4−v3-dense(k5) | vs same-commit k=5 re-run (2× mean 0.828/0.763/0.818/0.911/0.534) | +0.1421 | +0.0863 | −0.0594 | +0.0267 | **+0.0322** | | |
+| graph-v4 (2A) | Phase-2A LangGraph skeleton = the v4 path (retrieve→generate) wrapped in a graph, `PIPELINE=agent`; semantic ns, k=10, prompt/chunking UNCHANGED; single run (fp `fp_6cc92eaef9`, = v4's primary) | 0.9546 | 0.8740 | 0.7523 | 0.9479 | **0.5891** | `fec0958` | `graph_v4_agent_20260723T221534Z.json` |
+| Δ graph-v4 − v4 | all five within ±0.03; same fingerprint (no drift caveat) | −0.0151 | +0.0251 | −0.0066 | +0.0105 | **+0.0224** | | |
 
 ## Notes
+- **graph-v4 (Phase 2A) — the agentic skeleton reproduces v4; two senses of "reproduce", kept
+  distinct.** (1) INPUT-reproduction (the strong proof): a same-process, interleaved A/B repro probe
+  pushed all 28 questions through both `src.pipeline.ask` (v4) and `agent.graph.ask` and byte-diffed
+  under one fingerprint. contexts matched except one Pinecone tie-order swap; answer diffs were
+  baseline nondeterminism — a **v4-vs-v4 control** produced the SAME rate (8/28 same-fp answer diffs
+  + 1 context reorder) and even reproduced the row-20 agree↔disagree comparison flip on
+  byte-identical input, so the wrapper feeds v4's exact retrieval+generation inputs (plumbing
+  cleared; the probe scripts are gitignored scratch). (2) METRIC-reproduction (this row, `PIPELINE=
+  agent`): all five RAGAS metrics within ±0.03 of committed v4, on the SAME primary fingerprint
+  `fp_6cc92eaef9` v4 was produced under (no drift caveat). Concentration analysis (Step 4) was NOT
+  triggered — `answer_correctness` moved +0.0224, inside the band. CAVEAT: judge-side timeouts /
+  rate-limits + "1 generation instead of 3" this run dropped rows to NaN (RAGAS
+  `raise_exceptions=False`), so faithfulness is a mean over 25/28 (rows 8,9,13 dropped) and
+  context_recall over 24/28 (8,9,10,14) — a judge-infra noise source (not generation), which partly
+  explains faithfulness's −0.015 as a denominator mismatch vs v4's mean. `graph.py` was NOT touched
+  in response to aggregate noise (5a already cleared plumbing). Producing code: commit `fec0958`
+  (the additive, default-preserving PIPELINE switch); default/unset `PIPELINE` still runs v4 byte-for-byte.
 - **METHODOLOGY — run-to-run variance & backend drift (applies to every row).** temp=0/seed=42 is
   deterministic at a FIXED backend fingerprint — a controlled probe (same `_llm()`, one prompt, 10×
   back-to-back) gave 10/10 identical outputs under one fingerprint (`fp_6cc92eaef9`). But OpenAI's
