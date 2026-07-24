@@ -13,3 +13,7 @@ scratchpad/
 scripts/ab_repro_probe.py
 scripts/ab_repro_probe_result.json
 scripts/ab_repro_probe_control_result.json
+
+# decomposition falsification probe (Step 8) — script + result are scratch; PREDICTION is committed
+scripts/decomp_probe*
+!scripts/decomp_probe_PREDICTION.md
