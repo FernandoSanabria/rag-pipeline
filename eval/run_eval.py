@@ -63,7 +63,21 @@ def main() -> None:
 
     from src.config import get_settings
     from src.generate import generation_backends, reset_generation_backends
-    from src.pipeline import ask
+
+    # PIPELINE selects the pipeline under eval. Additive + default-preserving: unset keeps the v4
+    # src.pipeline.ask path byte-for-byte (Phase 1 reproducibility untouched). PIPELINE=agent routes
+    # through the Phase 2 LangGraph graph (agent.graph.ask), proven by the A/B repro probe to feed
+    # byte-identical retrieval+generation inputs. The choice is recorded in result provenance.
+    pipeline_name = os.environ.get("PIPELINE", "v4").lower()
+    if pipeline_name not in {"v4", "agent"}:
+        # A typo (e.g. PIPELINE=agnet) must ERROR — never silently fall through to v4 and
+        # "reproduce v4" by accidentally running v4.
+        raise SystemExit(f"unknown PIPELINE={pipeline_name!r} (expected v4|agent)")
+    if pipeline_name == "agent":
+        from agent.graph import ask
+    else:
+        from src.pipeline import ask
+    print(f"[eval] pipeline under test: {pipeline_name}")
 
     rows = _load_dataset(DATASET_PATH)
     print(f"Loaded {len(rows)} rows from {DATASET_PATH.relative_to(REPO_ROOT)}")
@@ -122,6 +136,7 @@ def main() -> None:
     payload = {
         "ragas_version": ragas.__version__,
         "timestamp_utc": timestamp,
+        "pipeline": pipeline_name,
         "judge_model": judge_model,
         "embedding_model": embed_model,
         "generation_backends": gen_backends,
