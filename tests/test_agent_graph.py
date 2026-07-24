@@ -33,6 +33,35 @@ def _stub_ok(monkeypatch, answer="STUB ANSWER", chunks=CHUNKS):
     return gen
 
 
+def test_fresh_state_initializes_all_eight_channels():
+    """State construction contract: fresh_state seeds ALL 8 channels with correct defaults, so no
+    node ever reads an unset channel and the add-reducer accumulators start EMPTY (invariant (a),
+    which 2B's parallel Send fan-in relies on)."""
+    st = fresh_state("what is X?")
+    assert set(st) == {
+        "question", "sub_questions", "route", "retrieval_error",
+        "retrieved", "answer", "citations", "trace_notes",
+    }
+    assert st["question"] == "what is X?"
+    assert st["route"] == "direct"         # 2A / v4 direct path
+    assert st["retrieval_error"] is False   # sentinel default
+    assert st["sub_questions"] == []
+    assert st["retrieved"] == []            # add-reducer accumulator starts empty
+    assert st["trace_notes"] == []          # add-reducer accumulator starts empty
+    assert st["citations"] == []
+    assert st["answer"] == ""
+
+    # Aliasing / independence — a shared-mutable-default would pass every ==[] check above yet break
+    # invariant (a) (evidence leaking across invocations). Two fresh states must be independent, and a
+    # single state's two accumulators must be distinct objects.
+    a = fresh_state("qa")
+    b = fresh_state("qb")
+    a["retrieved"].append({"x": 1})
+    a["trace_notes"].append("note")
+    assert b["retrieved"] == [] and b["trace_notes"] == []
+    assert a["retrieved"] is not a["trace_notes"]
+
+
 def test_ask_returns_frozen_contract(monkeypatch):
     _stub_ok(monkeypatch)
     out = graph.ask("what is the flash point of acetone?")
