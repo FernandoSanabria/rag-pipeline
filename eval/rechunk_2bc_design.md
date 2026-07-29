@@ -42,18 +42,37 @@ failing/at-risk dataset row depends on it.** Applying it:
 targets, both with clean detectable delimiters.**
 
 ## 3. Boundary rules — PROVEN on the real chunks + validated at corpus scale
-### 3a. NIOSH → per-chemical-entry
-Delimiter: each entry begins at the line `<Name> Formula:`. Split at the start of every line
-containing `Formula:` (the leading text before the first header = TAIL fragment).
-- **PROVEN on the real p44 chunk (5952 chars → 5 segments):** TAIL(838) + 2-Aminopyridine(1326) +
-  Amitrole(1630) + **Ammonia(2046, `IDLH: 300 ppm`, `Anhydrous ammonia` — ISOLATED into its own
-  chunk ✓)** + Ammonium-chloride-fume-start(112).
-- **Corpus (358 chunks):** entries/chunk = {0:120, 1:60, 2:35, 3:29, 4:110, 5:4}; **178/358 merge
-  ≥2 entries** (the problem). **120/358 = 33.5% are headerless** (front-matter / appendix tables /
-  respirator tables) — NOT delimiter misfires (they genuinely contain no `Formula:` entry), but a
-  design finding: **entry pages use the per-entry rule; the ~33% non-entry pages need a size-based
-  prose fallback.** Expected per-entry chunk count ≈ **677** (≈ the guide's chemical count; sane —
-  not 400 tiny, not 3 huge), up from 358.
+### 3a. NIOSH → per-chemical-entry (with the headerless fallback specified)
+**Operate on the RE-EXTRACTED full document, NOT on current chunks.** Honesty finding: **235/358
+current chunks cut an entry at the chunk boundary** (an entry's head in one chunk, its value in the
+next), so re-splitting the *existing* chunks would orphan values pervasively. The re-chunk therefore
+re-reads the PDF (page-ordered) and splits the whole document; a reconstruction (page-ordered concat)
+validated this: 677 `Formula:` occurrences = the guide's ~677 chemicals.
+
+**Delimiter (refined):** an entry begins at its **NAME line**. Anchor on `Formula:`, but if `Formula:`
+is line-initial (name on the previous line, e.g. `Arsenic\nFormula:` vs same-line `Ammonia Formula:`),
+back up to the preceding non-empty line. Honesty finding: the naive "cut at the `Formula:` line" rule
+**orphaned the name of 25/677 (3.7%) entries** (inconsistent PDF line-breaks); the name-anchored rule
+fixes it → **0/677 orphaned**.
+- **PROVEN on the real p44 chunk:** isolates **Ammonia (2046 chars, `IDLH: 300 ppm`, `Anhydrous
+  ammonia`) into its own chunk ✓**; on the reconstructed doc the ammonia entry is **whole and unique**.
+
+**Headerless characterization** (the 120/358 = 33.5% chunks with no `Formula:`): ~8 are continuation
+TAILs (body of an entry whose header is in the prior chunk — an artifact of the current boundaries,
+gone after re-extraction); the rest are **front-matter / index / the field-definition glossary /
+appendix tables** (pp 1–14 intro, glossary, trailing appendices); **0 malformed**.
+
+**FALLBACK RULE (explicit):** contiguous spans with no `<Name> Formula:` header — the front-matter
+before the first entry, the trailing appendix/index region, and any single entry segment that exceeds
+a size cap (~4000 chars) because it absorbed non-entry text — go to a **recursive size-based splitter
+(~1500 chars)** and are labeled "prose" (page-tagged, low-priority, not chemical-fact answers). Entry
+spans use the per-entry rule; only non-entry spans hit the fallback — so **no chemical entry is split
+across a header/fallback boundary.**
+
+**Effect (refined delimiter + fallback, measured on the reconstruction):** 676 whole per-entry chunks
+(size min/median/max = 492/1476/2315 — all embed-clean) + 1 appendix-absorbed segment routed to
+fallback + **46** front-matter prose chunks + **111** appendix prose chunks ≈ **834 total** (vs 358
+now). Orphaned entries: **0**. Sane distribution — not 400 tiny, not 3 huge.
 
 ### 3b. SDS → per-section (acetone only)
 Delimiter: `SECTION N:`. **VENDOR FORMATS DIVERGE — validated across all four SDS:** Sigma **16/16**
