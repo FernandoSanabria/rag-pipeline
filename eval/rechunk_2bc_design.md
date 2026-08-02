@@ -129,3 +129,14 @@ When built: re-ingest ONLY {niosh-pocket-guide, sds-sigma-aldrich-acetone} into 
 via a rank probe that the ammonia-entry and acetone-Section-9 chunks reach top-10; run the full 28-row
 eval on `semantic_v2` vs the frozen baseline; verify the invariant set is unchanged (by content hash),
 the at-risk set moved only as predicted, and the two targets recovered — over the intersection.
+
+## GATE AMENDMENT (post-Gate-1)
+The pre-reg said BOTH targets must reach top-10 before running Gate 2. Gate-1 (rank probe vs
+`semantic_v2`, k=10/100, ×2) came back split: **IDLH cleared** (ammonia entry absent-from-top-100 →
+**rank 8** for the combined eval question, **rank 2** for the focused sub-question, stable both runs);
+**acetone did NOT** (107 → **rank 19**, stable — per-section chunking still bundles ~40 physical
+properties, so flash point stays diluted). Amending the Gate-2 trigger: **IDLH cleared AND the
+invariant guard is needed regardless**, so run the full eval to (a) read-verify the IDLH answer and
+(b) prove the invariant set held. **Acetone is a recorded NEGATIVE going in, NOT a target of this
+run** — its next lever (per-property chunking / scoped BM25 on the flash-point sub-question) is a
+separate diagnosed finding, not a failure of this run.
