@@ -17,3 +17,6 @@ scripts/ab_repro_probe_control_result.json
 # decomposition falsification probe (Step 8) — script + result are scratch; PREDICTION is committed
 scripts/decomp_probe*
 !scripts/decomp_probe_PREDICTION.md
+
+# re-chunk design pass (Step 9) — pre-chunk baseline snapshot is scratch (the frozen "before")
+scripts/prechunk_top10_baseline.json
