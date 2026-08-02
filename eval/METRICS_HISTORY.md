@@ -17,8 +17,37 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 | Δ v4−v3-dense(k5) | vs same-commit k=5 re-run (2× mean 0.828/0.763/0.818/0.911/0.534) | +0.1421 | +0.0863 | −0.0594 | +0.0267 | **+0.0322** | | |
 | graph-v4 (2A) | Phase-2A LangGraph skeleton = the v4 path (retrieve→generate) wrapped in a graph, `PIPELINE=agent`; semantic ns, k=10, prompt/chunking UNCHANGED; single run (fp `fp_6cc92eaef9`, = v4's primary) | 0.9546 | 0.8740 | 0.7523 | 0.9479 | **0.5891** | `fec0958` | `graph_v4_agent_20260723T221534Z.json` |
 | Δ graph-v4 − v4 | all five within ±0.03; same fingerprint (no drift caveat) | −0.0151 | +0.0251 | −0.0066 | +0.0105 | **+0.0224** | | |
+| semantic_v2 (2B/2C) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)**; NOT promoted. Read-verified per-row, NOT a band comparison | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `7345619` | `eval_20260802T211136Z.json` (gitignored) |
 
 ## Notes
+- **semantic_v2 (Phase 2B/2C) — structure-aware re-chunking; IDLH RECOVERED, acetone a recorded
+  NEGATIVE. This is the article's evidence base — read per-row, not from aggregates.**
+  - **Decomposition FALSIFIED as the IDLH lever** (`eval/decomp_probe_RESULT.md`; pre-reg `cc01954`).
+    Root cause = FAT MULTI-RECORD chunks (the ammonia IDLH-300 entry buried in a 5-chemical Pocket-
+    Guide chunk; acetone flash point in a 5,487-char SDS Sections-9–11 blob) — a shared diagnosis.
+  - **Lever = structure-aware re-chunking** into `semantic_v2` (name-anchored per-entry NIOSH + prose
+    fallback; per-section acetone), built by `scripts/build_semantic_v2.py` (Approach B: 886 copied
+    byte-identical + 870 re-chunked = 1756 vectors), **gated, NOT promoted** (default
+    `RETRIEVAL_NAMESPACE` stays `semantic`). Design + pre-reg `eval/rechunk_2bc_design.md` (`2d94a89`);
+    gate amendment `92aefe7`.
+  - **IDLH (row 8) FULL RECOVERY, read-verified:** answer states **NIOSH IDLH 300 ppm + EPA endpoint
+    200 ppm + the comparison**; correctness **0.362→0.667**; **citation p44→p45 (ground-truth
+    aligned** — the pre-registered citation prediction, confirmed). Gate-1: ammonia entry
+    absent-from-top-100 → rank 8 (combined eval question) / rank 2 (focused), stable both runs.
+  - **Acetone (row 24) recorded NEGATIVE:** honest refusal (faith 0.0, no fabrication); correctness
+    **0.183→0.036 — METRIC-DOWN / BEHAVIOR-ARGUABLY-UP** (an honest refusal over v4's wrong "0 °F" is
+    the safer failure for safety-doc RAG — a recorded judgment). Gate-1: 107→rank 19; per-section
+    still bundles ~40 properties.
+  - **Invariant 16/19 byte-identical, 0 copy bugs** (two-sided reconcile + verify-by-refetch held);
+    3 benign target-doc INTRUSIONS (rows 7/20/25 — a finer NIOSH entry entering top-10), **row 20
+    +0.61, none regressed**. At-risk (9 rows) moved as predicted; no confident-wrong.
+  - **CAVEAT:** Gate-2 ran on **`fp_c881474fd1` ≠ v4's `fp_6cc92eaef9`** → aggregates are DIRECTIONAL,
+    NOT a clean ±0.03 band pass; the win is read-verified PER-ROW (8/20/24), not argued from
+    aggregates. Aggregate correctness +0.01 masks the structure (+0.30 IDLH, −0.15 acetone, +0.61 row 20).
+  - **Diagnosed acetone next-lever (corrected by READING the ranks, not guessed):** the 17 chunks
+    above the acetone Section-9 chunk are NIOSH per-entry chunks (Acetone p33 + acetates) flooding
+    the "acetone" query — so the lever is **source-scoped retrieval / scoped BM25**, NOT per-property
+    chunking. (This NIOSH-competitiveness is also the intrusion mechanism above.)
 - **graph-v4 (Phase 2A) — the agentic skeleton reproduces v4; two senses of "reproduce", kept
   distinct.** (1) INPUT-reproduction (the strong proof): a same-process, interleaved A/B repro probe
   pushed all 28 questions through both `src.pipeline.ask` (v4) and `agent.graph.ask` and byte-diffed
