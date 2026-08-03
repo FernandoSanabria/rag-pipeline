@@ -91,7 +91,7 @@ This creates the virtualenv, installs all pinned dependencies, **and editable-in
 
 ## Usage
 
-Run everything from the repo root via `uv run`. The **shipped** configuration — the `semantic_v2` namespace (structure-aware re-chunk of the NIOSH Pocket Guide + acetone SDS; the 2B IDLH recovery, promoted after a fingerprint-matched like-for-like with no regression beyond −0.03) at depth **k=10** — is the default in [`src/config.py`](src/config.py) (`RETRIEVAL_NAMESPACE=semantic_v2`, `RETRIEVAL_K=10`), so eval and the API need no retrieval overrides. Fall back to the v4 namespace with `RETRIEVAL_NAMESPACE=semantic` (one env var). Ingestion still selects semantic chunking explicitly, because `CHUNKING_STRATEGY` is an ingest-only knob that still defaults to `fixed_500_50`:
+Run everything from the repo root via `uv run`. The **shipped** configuration — the `semantic_v2` namespace (structure-aware re-chunk of the NIOSH Pocket Guide + acetone SDS; the 2B IDLH recovery, promoted after a fingerprint-matched like-for-like with no regression beyond −0.03) at depth **k=10** — is the default in [`src/config.py`](src/config.py) (`RETRIEVAL_NAMESPACE=semantic_v2`, `RETRIEVAL_K=10`); local/eval use that default, and **production pins it explicitly** in [`render.yaml`](render.yaml) so declared == live. Roll back to the v4 namespace with a one-line `render.yaml` PR (`RETRIEVAL_NAMESPACE=semantic`). Ingestion still selects semantic chunking explicitly, because `CHUNKING_STRATEGY` is an ingest-only knob that still defaults to `fixed_500_50`:
 
 ```bash
 # Ingest the corpus into Pinecone — shipped (semantic) namespace (CHUNKING_STRATEGY defaults to fixed_500_50)

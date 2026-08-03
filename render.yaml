@@ -17,6 +17,11 @@ services:
         sync: false            # set in the Render dashboard / secret store; never committed
       - key: INDEX_NAME
         value: equip-docs-rag
-      # RETRIEVAL_NAMESPACE / RETRIEVAL_K are omitted on purpose — the shipped defaults
-      # (semantic_v2 / k=10) live in src/config.py, so the served config needs no overrides.
-      # (Revert the promotion without a redeploy by setting RETRIEVAL_NAMESPACE=semantic here.)
+      # Production retrieval namespace pinned EXPLICITLY (declared == live, auditable in git).
+      # render.yaml env WINS over the src/config.py default, so this is the source of truth in prod.
+      # ROLLBACK = change the value below to `semantic` via a one-line PR (reviewable, in git
+      # history — the documented revert path). A dashboard env override also works but is
+      # EMERGENCY-ONLY: it creates declared-vs-live drift until removed.
+      - key: RETRIEVAL_NAMESPACE
+        value: semantic_v2
+      # RETRIEVAL_K omitted on purpose — the shipped k=10 default lives in src/config.py.
