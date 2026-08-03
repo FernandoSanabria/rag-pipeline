@@ -18,4 +18,5 @@ services:
       - key: INDEX_NAME
         value: equip-docs-rag
       # RETRIEVAL_NAMESPACE / RETRIEVAL_K are omitted on purpose — the shipped defaults
-      # (semantic / k=10) live in src/config.py, so the served config needs no overrides.
+      # (semantic_v2 / k=10) live in src/config.py, so the served config needs no overrides.
+      # (Revert the promotion without a redeploy by setting RETRIEVAL_NAMESPACE=semantic here.)
