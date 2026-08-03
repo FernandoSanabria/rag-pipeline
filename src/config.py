@@ -17,9 +17,11 @@ class Settings(BaseSettings):
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
     index_name: str = Field(default="equip-docs-rag", alias="INDEX_NAME")
     llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
-    # Retrieval namespace — default = shipped v4 config (semantic). Override via RETRIEVAL_NAMESPACE
-    # for the eval A/B (e.g. fixed_500_50 for the v1/v2 baselines).
-    retrieval_namespace: str = Field(default="semantic", alias="RETRIEVAL_NAMESPACE")
+    # Retrieval namespace — default = semantic_v2 (structure-aware re-chunk of NIOSH per-entry +
+    # acetone per-section; PROMOTED after the fingerprint-matched like-for-like: IDLH recovered,
+    # 0 confident-wrong, invariant intact, no metric regressed beyond −0.03). Reversible in one env
+    # var: set RETRIEVAL_NAMESPACE=semantic to fall back. Override also selects the eval A/B baselines.
+    retrieval_namespace: str = Field(default="semantic_v2", alias="RETRIEVAL_NAMESPACE")
     # Retrieval depth (top-k) — default = shipped v4 config (10). Override via RETRIEVAL_K for the
     # eval A/B (e.g. 5 for the v1/v2/v3 runs).
     retrieval_k: int = Field(default=10, alias="RETRIEVAL_K")
