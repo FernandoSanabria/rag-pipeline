@@ -34,5 +34,39 @@ unchanged, 0 copy bugs) AND **all 5 metrics within v4's ±0.03 on the fingerprin
 intersection.** (Blast-radius intrusions that don't regress a row do not by themselves disqualify;
 a confident-wrong regression or an out-of-band metric does.)
 
-## Result
-(appended after the runs)
+## Result (fingerprint-matched, single interleaved run)
+**28/28 rows shared `fp_c881474fd1`** — a true like-for-like (zero drift; the pre-registered ≥20-row
+bar cleared). Per-metric v2 (semantic_v2) vs v4 (semantic), over the shared-fp intersection:
+
+| metric | v2 | v4 | Δ | \|Δ\|≤0.03 | n |
+|---|--:|--:|--:|:--:|--:|
+| faithfulness | 0.9474 | 0.9397 | +0.0077 | YES | 19 |
+| answer_relevancy | 0.8702 | 0.8351 | +0.0351 | no (UP) | 28 |
+| context_precision | 0.7444 | 0.7630 | −0.0186 | YES | 28 |
+| context_recall | 0.9833 | 0.9375 | +0.0458 | no (UP) | 20 |
+| answer_correctness | 0.5932 | 0.5831 | +0.0101 | YES | 28 |
+
+**Prediction verdict:** the "aggregates within v4's ±0.03 once fingerprints match" prediction HELD for
+faithfulness, context_precision, answer_correctness — **confirming the Gate-2 faithfulness/precision
+dips were fingerprint DRIFT, not the lever** (faith flipped −0.024→+0.008; precision −0.036→−0.019).
+answer_relevancy (+0.035) and context_recall (+0.046) came in ABOVE the band — v2 is BETTER, not
+worse (recall is a RAGAS-noisy metric over n=20, so directional). **No metric regressed beyond ±0.03.**
+
+**Per-row reads (rows 8/20/24, all shared_fp):**
+- **row 8 IDLH — full recovery reproduced:** correctness **0.363 → 0.974**; answer states "NIOSH IDLH
+  … 300 ppm [niosh-pocket-guide page=45] … EPA RMP … 200 ppm" + the comparison. Citation p45 = gt.
+- **row 20 chlorine — improved:** correctness **0.456 → 0.955** (a finer-NIOSH intrusion helped this
+  "invariant" row; states OSHA ceiling 1 ppm / 3 mg/m³). Moved UP, not a regression.
+- **row 24 acetone — still fails (recorded negative):** v2 refuses ("does not contain the answer");
+  correctness 0.114 → 0.036 (honest refusal over v4's wrong value).
+
+**2×-replicate:** pre-registered trigger NOT met — shared-fp = 28 (≥20) AND faithfulness + correctness
+both in ±0.03. (The scratch script's all-5 `band_ok` flagged replicate, but that is stricter than the
+pre-registered faith-OR-correctness trigger; not binding.) No replicate run.
+
+**Promotion-bar mapping (`1f88b10`):** IDLH read-verified recovered ✓ · 0 confident-wrong ✓ (acetone
+refuses; changed rows moved up/held) · invariant COPY-integrity intact ✓ (0 copy bugs; but 3
+"invariant" rows moved UP via finer-NIOSH intrusion) · **all-5-within-±0.03 ✗ — failed ONLY because
+relevancy + recall IMPROVED beyond +0.03, not by any regression.** So the bar's letter fails on
+over-performance; its spirit (no regression, quality held-or-better) passes. Promotion is a judgment
+call for the reviewer, not an automatic disqualify. `semantic_v2` NOT promoted here.
