@@ -20,3 +20,7 @@ scripts/decomp_probe*
 
 # re-chunk design pass (Step 9) — pre-chunk baseline snapshot is scratch (the frozen "before")
 scripts/prechunk_top10_baseline.json
+
+# like-for-like eval scratch (gitignored; result in the committed pre-reg doc)
+scripts/likeforlike_eval.py
+scripts/likeforlike_result.json
