@@ -195,13 +195,22 @@ def test_router_source_scopes_single_document_question(monkeypatch):
     assert out["source_doc_id"] == "sds-sigma-aldrich-acetone"
 
 
-def test_router_idlh_comparison_stays_direct(monkeypatch):
-    """PIN: the shipped 2B IDLH win is a TWO-source comparison — it MUST route direct, else a
-    single-doc filter would drop one side and halve the answer."""
+@pytest.mark.parametrize("question", [
+    # the shipped 2B IDLH win — a TWO-source comparison; source-scoping would drop one side
+    "For anhydrous ammonia, how does the NIOSH IDLH compare to the EPA RMP toxic endpoint "
+    "used in offsite consequence analysis?",
+    # a regulation-by-name general question (the router OVER-scoped this before the prompt was narrowed)
+    "What triggers the Management of Change requirement under the PSM standard?",
+    # a cross-source comparison
+    "What is the exposure limit for chlorine under OSHA versus NIOSH?",
+])
+def test_router_non_source_anchored_stays_direct(monkeypatch, question):
+    """PIN the DIRECT boundary at the router_node contract level: comparisons + regulation-by-name
+    questions route direct (the 2B IDLH win + simple rows must NOT be source-scoped). NOTE: the LLM
+    is stubbed, so this pins router_node's HANDLING, not prompt classification — real prompt-drift is
+    caught by the mandatory pre-eval real-router scope check (which caught the MOC over-scope)."""
     _stub_route(monkeypatch, False, None)
-    out = graph.router_node(fresh_state(
-        "For anhydrous ammonia, how does the NIOSH IDLH compare to the EPA RMP toxic endpoint "
-        "used in offsite consequence analysis?"))
+    out = graph.router_node(fresh_state(question))
     assert out["route"] == "direct"
     assert out["source_doc_id"] == ""
 
