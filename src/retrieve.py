@@ -36,17 +36,25 @@ def _index():
 
 
 @traceable(name="dense_search")
-def dense_search(query: str, k: int = DEFAULT_K) -> list[dict]:
-    """Return up to k chunks as [{"text", "source_doc_id", "page"}], ordered by score."""
+def dense_search(query: str, k: int = DEFAULT_K, source_doc_id: str | None = None) -> list[dict]:
+    """Return up to k chunks as [{"text", "source_doc_id", "page"}], ordered by score.
+
+    source_doc_id (optional): restrict retrieval to ONE document via a metadata filter — used by the
+    agent's source-scoped route for single-document questions ("per the X SDS"). Default None =
+    unfiltered (the v4 path, byte-for-byte — preserves the 5a repro).
+    """
     from src.config import get_settings
 
     vector = _embedder().embed_query(query)
-    res = _index().query(
+    query_kwargs = dict(
         vector=vector,
         top_k=k,
         namespace=get_settings().retrieval_namespace,
         include_metadata=True,
     )
+    if source_doc_id is not None:
+        query_kwargs["filter"] = {"source_doc_id": {"$eq": source_doc_id}}
+    res = _index().query(**query_kwargs)
     out = []
     for match in res["matches"]:
         md = match.get("metadata") or {}
