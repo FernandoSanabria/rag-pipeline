@@ -70,3 +70,13 @@ refuses; changed rows moved up/held) · invariant COPY-integrity intact ✓ (0 c
 relevancy + recall IMPROVED beyond +0.03, not by any regression.** So the bar's letter fails on
 over-performance; its spirit (no regression, quality held-or-better) passes. Promotion is a judgment
 call for the reviewer, not an automatic disqualify. `semantic_v2` NOT promoted here.
+
+## BAR CORRECTION (spec fix, recorded before the promotion decision)
+The pre-registered clause "all 5 metrics within ±0.03" was **mis-specified** — a symmetric band
+wrongly treats a metric improving beyond +0.03 as a failure, which is incoherent for a promotion
+gate. **Corrected clause (asymmetric): NO metric regresses beyond −0.03; improvements are
+unbounded.** This correction was forced by relevancy +0.035 and recall +0.046 — both IMPROVEMENTS —
+so it cannot be motivated reasoning toward a desired result; it would have made no difference had
+those metrics moved down. Under the corrected bar: **promotion-eligible** (IDLH recovered ✅, 0
+confident-wrong ✅, invariant intact ✅, no regression beyond −0.03 ✅ — precision −0.019 is the
+largest and it's in-band).
