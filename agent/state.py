@@ -94,7 +94,8 @@ class AgentState(TypedDict):
 
     question: str                              # original user question — set at entry, read-only after
     sub_questions: list[str]                   # decomposition output; [] when not decomposed (v4 path)
-    route: str                                 # "direct" | "decomposed" — routing decision (single writer: router, 2B)
+    route: str                                 # "direct" | "source_scoped" | "decomposed" — routing (single writer: router)
+    source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (writer: router)
     retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
     retrieved: Annotated[list[dict], add]      # ACCUMULATE across parallel sub-query retrievals
     answer: str                                # final grounded answer (single writer: generate)
@@ -139,6 +140,7 @@ def fresh_state(question: str) -> AgentState:
         question=question,
         sub_questions=[],
         route="direct",
+        source_doc_id="",
         retrieval_error=False,
         retrieved=[],
         answer="",

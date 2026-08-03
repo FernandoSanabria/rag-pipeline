@@ -13,6 +13,7 @@ while a *legitimate* empty retrieval still generates.
 
 from unittest.mock import MagicMock
 
+import pytest
 from langgraph.graph import END, START, StateGraph
 
 from agent import graph
@@ -33,17 +34,38 @@ def _stub_ok(monkeypatch, answer="STUB ANSWER", chunks=CHUNKS):
     return gen
 
 
-def test_fresh_state_initializes_all_eight_channels():
-    """State construction contract: fresh_state seeds ALL 8 channels with correct defaults, so no
-    node ever reads an unset channel and the add-reducer accumulators start EMPTY (invariant (a),
-    which 2B's parallel Send fan-in relies on)."""
+class _StubRouter:
+    """Stub for graph._router_llm() — .invoke(prompt) returns a fixed RouteDecision (no LLM call)."""
+
+    def __init__(self, decision):
+        self.decision = decision
+
+    def invoke(self, prompt):
+        return self.decision
+
+
+def _route_llm(scoped, doc_id):
+    return lambda: _StubRouter(graph.RouteDecision(source_scoped=scoped, source_doc_id=doc_id))
+
+
+@pytest.fixture(autouse=True)
+def _router_direct_by_default(monkeypatch):
+    """Every graph invocation hits router_node -> _router_llm(). Default it to DIRECT (no network),
+    so the 2A tests stay hermetic; source-scoped tests override with monkeypatch on graph._router_llm."""
+    monkeypatch.setattr(graph, "_router_llm", _route_llm(False, None))
+
+
+def test_fresh_state_initializes_all_nine_channels():
+    """State construction contract: fresh_state seeds ALL 9 channels with correct defaults, so no
+    node ever reads an unset channel and the add-reducer accumulators start EMPTY (invariant (a))."""
     st = fresh_state("what is X?")
     assert set(st) == {
-        "question", "sub_questions", "route", "retrieval_error",
+        "question", "sub_questions", "route", "source_doc_id", "retrieval_error",
         "retrieved", "answer", "citations", "trace_notes",
     }
     assert st["question"] == "what is X?"
     assert st["route"] == "direct"         # 2A / v4 direct path
+    assert st["source_doc_id"] == ""        # 2C: no source-scope on the direct path
     assert st["retrieval_error"] is False   # sentinel default
     assert st["sub_questions"] == []
     assert st["retrieved"] == []            # add-reducer accumulator starts empty
@@ -159,3 +181,77 @@ def test_legit_empty_retrieval_still_calls_generate(monkeypatch):
     assert out["answer"] == refusal
     assert out["contexts"] == []
     assert out["chunks"] == []
+
+
+# ---------------- 2C source-scoped router ----------------
+def _stub_route(monkeypatch, scoped, doc_id):
+    monkeypatch.setattr(graph, "_router_llm", _route_llm(scoped, doc_id))
+
+
+def test_router_source_scopes_single_document_question(monkeypatch):
+    _stub_route(monkeypatch, True, "sds-sigma-aldrich-acetone")
+    out = graph.router_node(fresh_state("What is the flash point of acetone per the Sigma-Aldrich SDS?"))
+    assert out["route"] == "source_scoped"
+    assert out["source_doc_id"] == "sds-sigma-aldrich-acetone"
+
+
+def test_router_idlh_comparison_stays_direct(monkeypatch):
+    """PIN: the shipped 2B IDLH win is a TWO-source comparison — it MUST route direct, else a
+    single-doc filter would drop one side and halve the answer."""
+    _stub_route(monkeypatch, False, None)
+    out = graph.router_node(fresh_state(
+        "For anhydrous ammonia, how does the NIOSH IDLH compare to the EPA RMP toxic endpoint "
+        "used in offsite consequence analysis?"))
+    assert out["route"] == "direct"
+    assert out["source_doc_id"] == ""
+
+
+def test_router_unknown_doc_id_falls_back_to_direct(monkeypatch):
+    """Guard: a source_scoped decision naming an UNKNOWN doc_id must NOT scope — fall back to direct."""
+    _stub_route(monkeypatch, True, "not-a-real-doc-id")
+    out = graph.router_node(fresh_state("per the Bogus SDS, what is X?"))
+    assert out["route"] == "direct"
+    assert out["source_doc_id"] == ""
+
+
+def test_dense_search_source_filter_shape_and_kwargs(monkeypatch):
+    """Additive source_doc_id filter: SAME {text, source_doc_id, page} dict contract; the filter kwarg
+    is present only when set (a wrong filter key would silently return empty and misdiagnose the lever)."""
+    from src import retrieve
+
+    class _FakeIndex:
+        last = None
+
+        def query(self, **kw):
+            _FakeIndex.last = kw
+            return {"matches": [{"metadata": {"text": "t", "source_doc_id": "doc-a", "page": 3}}]}
+
+    monkeypatch.setattr(retrieve, "_index", lambda: _FakeIndex())
+    monkeypatch.setattr(retrieve, "_embedder", lambda: type("E", (), {"embed_query": lambda self, q: [0.1]})())
+
+    out = retrieve.dense_search("q", k=5)
+    assert "filter" not in _FakeIndex.last
+    assert out == [{"text": "t", "source_doc_id": "doc-a", "page": 3}]
+
+    out2 = retrieve.dense_search("q", k=5, source_doc_id="sds-sigma-aldrich-acetone")
+    assert _FakeIndex.last["filter"] == {"source_doc_id": {"$eq": "sds-sigma-aldrich-acetone"}}
+    assert set(out2[0]) == {"text", "source_doc_id", "page"}
+
+
+def test_source_scoped_path_wires_through_the_graph(monkeypatch):
+    """End-to-end: router -> source_scoped_retrieve (filtered dense_search) -> generate; trace records it."""
+    _stub_route(monkeypatch, True, "sds-sigma-aldrich-acetone")
+    captured = {}
+
+    def fake_dense(q, k, source_doc_id=None):
+        captured["source_doc_id"] = source_doc_id
+        return [{"text": "Flash point : -17 C", "source_doc_id": "sds-sigma-aldrich-acetone", "page": 7}]
+
+    monkeypatch.setattr(graph, "dense_search", fake_dense)
+    monkeypatch.setattr(graph, "generate", lambda q, c: "-17 C")
+
+    state = graph._compiled_graph().invoke(fresh_state("flash point of acetone per the Sigma-Aldrich SDS?"))
+    assert state["route"] == "source_scoped"
+    assert captured["source_doc_id"] == "sds-sigma-aldrich-acetone"  # the filter was actually applied
+    assert any(n.startswith("retrieve[source_scoped:") for n in state["trace_notes"])
+    assert state["answer"] == "-17 C"
