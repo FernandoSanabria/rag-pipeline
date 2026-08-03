@@ -57,3 +57,26 @@ START → router_node → (source_scoped) → source_scoped_retrieve → generat
 Additive `dense_search(source_doc_id=None)`; router + source-scoped path in `agent/`; hermetic
 stubbed-LLM router tests incl. the IDLH-direct pin + filtered-dict-shape test. Full-eval gate reads
 acetone −17 °C by artifact, not delta; intersection rule. Do NOT promote.
+
+## RESULT — acetone RECOVERED (build `fb4eb6b`; eval PIPELINE=agent, `semantic_v2`, `fp_c881474fd1`)
+The eval fingerprint `fp_c881474fd1` == the Gate-2 semantic_v2 baseline → a fingerprint-matched
+comparison. Real-router scope over 28 rows: scopes EXACTLY rows 21/22/23/24 ("per the X SDS");
+IDLH (8), MOC (12), and every comparison route DIRECT. (The prompt was narrowed after a real-router
+check first over-scoped the general MOC question — the pre-eval check is the prompt-drift guard.)
+- **Acetone (row 24) RECOVERED, read-verified:** *"The flash point of acetone … is −17.0 °C (closed
+  cup) [sds-sigma-aldrich-acetone page=7]."* correctness **0.036 → 0.717 (+0.68)**. (page=7 chunk vs
+  gt page 8 = the pre-existing citation-page limitation; value + doc correct.)
+- **Other scoped rows — no regression:** row 22 autoignition 651 °C (0.75→0.90), row 23 bp −33 °C
+  (0.66→0.91) improved; row 21 NaOH pH 14 correct (0.68→0.60, verbosity — value right).
+- **Regression guard PASSES:** the 24 DIRECT rows have **byte-identical retrieval to the baseline
+  (24/24, 0 mismatches)** — the router does NOT perturb the direct path.
+- **Metrics (fp-matched intersection vs Gate-2 baseline):** correctness **+0.054**, faithfulness
+  +0.038, relevancy +0.022, precision +0.008, recall −0.018 (all in-band; no regression beyond −0.03).
+- **Router cost:** 1 gpt-4o-mini structured call/question (~600 in / ~15 out tok ≈ $0.0001/q, ≈$0.003
+  for all 28; ~1 s latency), paid on EVERY question incl. the 24 that then go direct.
+
+## ROUTER DOES NOT SHIP — demonstrated, not deployed
+**`/ask` serves `src.pipeline.ask` (v4 direct path, `semantic_v2`); the router runs ONLY under
+`PIPELINE=agent` in eval. 2C acetone recovery is DEMONSTRATED, not DEPLOYED.** Shipping it = the
+deferred **2D `/ask/agent` endpoint**, a separate decision. So on the live wire only the 2B IDLH win
+is served; acetone recovery is proven in eval but not on the endpoint.
