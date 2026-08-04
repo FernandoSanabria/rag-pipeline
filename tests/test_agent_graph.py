@@ -84,15 +84,22 @@ def test_fresh_state_initializes_all_nine_channels():
     assert a["retrieved"] is not a["trace_notes"]
 
 
-def test_ask_returns_frozen_contract(monkeypatch):
+def test_ask_returns_contract_with_routing_fields(monkeypatch):
     _stub_ok(monkeypatch)
     out = graph.ask("what is the flash point of acetone?")
 
-    assert set(out) == {"answer", "contexts", "chunks"}  # exactly the frozen shape run_eval reads
+    # 2D additive contract: the {answer, contexts, chunks} run_eval reads, PLUS the routing-transparency
+    # fields the /ask/agent endpoint surfaces. run_eval reads answer/contexts BY KEY, so extra keys are
+    # invisible to it and to the v4 byte-repro — the addition is safe.
+    assert set(out) == {"answer", "contexts", "chunks", "route", "source_doc_id", "routing_reason"}
     assert out["answer"] == "STUB ANSWER"
     assert out["chunks"] == CHUNKS
     # contexts must be the SAME pure representation the model saw — byte-identical via the real fn.
     assert out["contexts"] == format_contexts(CHUNKS)
+    # router stubbed direct (autouse fixture): no source scope, no reason
+    assert out["route"] == "direct"
+    assert out["source_doc_id"] == ""
+    assert out["routing_reason"] is None
 
 
 def test_direct_path_route_and_trace_notes(monkeypatch):
@@ -147,8 +154,11 @@ def test_retrieval_exception_short_circuits_with_no_generate_call(monkeypatch):
 
     out = graph.ask("q")
 
-    # (a) all three fields — exact dict equality also rejects any stray/extra key.
-    assert out == {"answer": "", "contexts": [], "chunks": []}
+    # (a) the three pipeline-parity fields on the exception path (unchanged behavior)...
+    assert out["answer"] == "" and out["contexts"] == [] and out["chunks"] == []
+    # ...plus the additive 2D routing fields (direct path, nothing scoped); set() rejects stray keys.
+    assert out["route"] == "direct" and out["source_doc_id"] == "" and out["routing_reason"] is None
+    assert set(out) == {"answer", "contexts", "chunks", "route", "source_doc_id", "routing_reason"}
     # (b) no LLM call — answer=="" alone would pass even if generate ran and returned "".
     gen.assert_not_called()
 
@@ -264,3 +274,75 @@ def test_source_scoped_path_wires_through_the_graph(monkeypatch):
     assert captured["source_doc_id"] == "sds-sigma-aldrich-acetone"  # the filter was actually applied
     assert any(n.startswith("retrieve[source_scoped:") for n in state["trace_notes"])
     assert state["answer"] == "-17 C"
+
+
+# ---------------- 2D source-scoped EXECUTION fallback ----------------
+# The router try/except guards CLASSIFICATION; source_scoped_retrieve_node guards EXECUTION — a
+# distinct failure that only occurs on the live wire (the 4 scoped eval rows all return chunks, so the
+# fallback never fires in the byte-repro). A filtered query that THROWS or returns EMPTY falls back to
+# the direct full-corpus retrieve, DOWNGRADES route to "direct", and clears source_doc_id so the
+# response never claims a single doc while citing others. A full-corpus answer beats a 500 or a blank.
+
+
+def test_source_scoped_execution_error_falls_back_to_direct(monkeypatch):
+    """Filtered dense_search THROWS -> direct full-corpus fallback; route downgraded, not an error."""
+    _stub_route(monkeypatch, True, "sds-sigma-aldrich-acetone")
+
+    def fake_dense(q, k, source_doc_id=None):
+        if source_doc_id is not None:  # the filtered query fails on the wire
+            raise RuntimeError("pinecone filter timeout")
+        return list(CHUNKS)            # the unfiltered fallback succeeds
+
+    monkeypatch.setattr(graph, "dense_search", fake_dense)
+    gen = MagicMock(return_value="FALLBACK ANSWER")
+    monkeypatch.setattr(graph, "generate", gen)
+
+    state = graph._compiled_graph().invoke(fresh_state("flash point of acetone per the Sigma-Aldrich SDS?"))
+    assert state["route"] == "direct"         # downgraded from source_scoped
+    assert state["source_doc_id"] == ""        # cleared -> response won't claim a single doc
+    assert state["retrieval_error"] is False   # the fallback succeeded; this is NOT the error sentinel
+    assert state["retrieved"] == CHUNKS
+    assert state["answer"] == "FALLBACK ANSWER"
+    gen.assert_called_once()                   # a full-corpus answer was produced, not skipped
+    notes = state["trace_notes"]
+    assert any("direct fallback" in n for n in notes)                 # the reason breadcrumb
+    assert any(n.startswith("retrieve[direct-fallback]:") for n in notes)
+
+
+def test_source_scoped_empty_result_falls_back_to_direct(monkeypatch):
+    """Filtered query returns ZERO chunks (valid doc_id, nothing matched) -> direct fallback. Asserted
+    through ask() so the RESPONSE contract shows route/source_doc_id/routing_reason all downgraded."""
+    _stub_route(monkeypatch, True, "sds-sigma-aldrich-acetone")
+
+    def fake_dense(q, k, source_doc_id=None):
+        return [] if source_doc_id is not None else list(CHUNKS)
+
+    monkeypatch.setattr(graph, "dense_search", fake_dense)
+    monkeypatch.setattr(graph, "generate", MagicMock(return_value="FALLBACK ANSWER"))
+
+    out = graph.ask("flash point of acetone per the Sigma-Aldrich SDS?")
+    assert out["route"] == "direct"
+    assert out["source_doc_id"] == ""
+    assert out["routing_reason"] is None       # no single-doc claim survives the fallback
+    assert out["chunks"] == CHUNKS
+    assert out["answer"] == "FALLBACK ANSWER"
+
+
+def test_source_scoped_fallback_also_failing_sets_sentinel(monkeypatch):
+    """If even the direct fallback throws, mirror retrieve_node: retrieval_error sentinel, generate
+    SKIPPED (no LLM cost), empty answer — the endpoint still returns 200/empty, never a 500."""
+    _stub_route(monkeypatch, True, "sds-sigma-aldrich-acetone")
+
+    def always_boom(q, k, source_doc_id=None):
+        raise RuntimeError("pinecone fully down")
+
+    monkeypatch.setattr(graph, "dense_search", always_boom)
+    gen = MagicMock(return_value="SHOULD NEVER RUN")
+    monkeypatch.setattr(graph, "generate", gen)
+
+    state = graph._compiled_graph().invoke(fresh_state("flash point of acetone per the Sigma-Aldrich SDS?"))
+    assert state["retrieval_error"] is True
+    assert state["route"] == "direct"
+    assert state["retrieved"] == []
+    assert state["answer"] == ""
+    gen.assert_not_called()

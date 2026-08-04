@@ -57,3 +57,65 @@ def test_ask_blank_question_returns_422():
 
 def test_ask_missing_question_returns_422():
     assert client.post("/ask", json={}).status_code == 422
+
+
+# ---- /ask/agent — routing transparency (agent_ask stubbed; no LLM, no network) ------------------
+# agent_ask returns the same {answer, contexts, chunks} as /ask PLUS {route, source_doc_id,
+# routing_reason}. These assert the endpoint reuses the shared confidence/citation assembly AND
+# surfaces the route fields. Answer quality + real routing are the eval harness's job, not this suite's.
+
+
+def test_ask_agent_direct_surfaces_route_and_reuses_assembly(monkeypatch):
+    # A comparison (e.g. the shipped IDLH row) routes DIRECT: route=direct, no source_doc_id/reason.
+    monkeypatch.setattr(main, "agent_ask", _stub({
+        "answer": "The NIOSH IDLH is 300 ppm; the EPA RMP endpoint is 200 ppm.",
+        "contexts": ["[source_doc_id=niosh-pocket-guide page=45]\n..."],
+        "chunks": [{"source_doc_id": "niosh-pocket-guide", "page": 45, "text": "..."}],
+        "route": "direct", "source_doc_id": "", "routing_reason": None,
+    }))
+    r = client.post("/ask/agent", json={"question": "How does the NIOSH IDLH compare to the EPA endpoint?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["route"] == "direct"
+    assert body["source_doc_id"] is None  # "" downgraded to null in the response
+    assert body["routing_reason"] is None
+    # shared assembly still applies: high confidence + a citation
+    assert body["confidence_score"] == 0.9
+    assert body["citations"][0]["page"] == 45
+
+
+def test_ask_agent_source_scoped_surfaces_doc_and_reason(monkeypatch):
+    # A single-document question ("per the Sigma-Aldrich SDS") routes SOURCE_SCOPED.
+    monkeypatch.setattr(main, "agent_ask", _stub({
+        "answer": "The flash point of acetone is -17.0 C (closed cup).",
+        "contexts": ["[source_doc_id=sds-sigma-aldrich-acetone page=7]\n..."],
+        "chunks": [{"source_doc_id": "sds-sigma-aldrich-acetone", "page": 7, "text": "..."}],
+        "route": "source_scoped", "source_doc_id": "sds-sigma-aldrich-acetone",
+        "routing_reason": "Question attributed to a single named document: Acetone SDS",
+    }))
+    r = client.post("/ask/agent", json={"question": "Flash point of acetone per the Sigma-Aldrich SDS?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["route"] == "source_scoped"
+    assert body["source_doc_id"] == "sds-sigma-aldrich-acetone"
+    assert isinstance(body["routing_reason"], str) and body["routing_reason"]
+    assert body["confidence_score"] == 0.9
+    assert body["citations"][0]["document"]  # manifest title, not a raw id
+
+
+def test_ask_agent_refusal_maps_low_and_empty_citations(monkeypatch):
+    # The shared assembly must behave identically to /ask on a refusal, whatever the route.
+    monkeypatch.setattr(main, "agent_ask", _stub({
+        "answer": "The provided context does not contain the answer.",
+        "contexts": [], "chunks": [{"source_doc_id": "sds-sigma-aldrich-acetone", "page": 1, "text": "..."}],
+        "route": "direct", "source_doc_id": "", "routing_reason": None,
+    }))
+    r = client.post("/ask/agent", json={"question": "What is the meaning of life?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence_score"] == 0.25
+    assert body["citations"] == []
+
+
+def test_ask_agent_blank_question_returns_422():
+    assert client.post("/ask/agent", json={"question": "  "}).status_code == 422
