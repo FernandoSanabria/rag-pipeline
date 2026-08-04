@@ -6,6 +6,7 @@ correctly, and returns the right status codes. Answer QUALITY is the eval harnes
 
 from fastapi.testclient import TestClient
 
+from agent import graph as agent_graph
 from api import main
 
 client = TestClient(main.app)
@@ -13,6 +14,13 @@ client = TestClient(main.app)
 
 def _stub(result):
     return lambda question: result
+
+
+def _stub_agent(monkeypatch, result):
+    """Stub the agent entry for /ask/agent. The handler imports `agent.graph.ask` LAZILY (module note
+    in api/main.py), so there is no `main.agent_ask` attribute to patch — patch it at the source, which
+    the lazy `from agent.graph import ask` picks up at call time."""
+    monkeypatch.setattr(agent_graph, "ask", _stub(result))
 
 
 def test_health_ok():
@@ -67,12 +75,12 @@ def test_ask_missing_question_returns_422():
 
 def test_ask_agent_direct_surfaces_route_and_reuses_assembly(monkeypatch):
     # A comparison (e.g. the shipped IDLH row) routes DIRECT: route=direct, no source_doc_id/reason.
-    monkeypatch.setattr(main, "agent_ask", _stub({
+    _stub_agent(monkeypatch, {
         "answer": "The NIOSH IDLH is 300 ppm; the EPA RMP endpoint is 200 ppm.",
         "contexts": ["[source_doc_id=niosh-pocket-guide page=45]\n..."],
         "chunks": [{"source_doc_id": "niosh-pocket-guide", "page": 45, "text": "..."}],
         "route": "direct", "source_doc_id": "", "routing_reason": None,
-    }))
+    })
     r = client.post("/ask/agent", json={"question": "How does the NIOSH IDLH compare to the EPA endpoint?"})
     assert r.status_code == 200
     body = r.json()
@@ -86,13 +94,13 @@ def test_ask_agent_direct_surfaces_route_and_reuses_assembly(monkeypatch):
 
 def test_ask_agent_source_scoped_surfaces_doc_and_reason(monkeypatch):
     # A single-document question ("per the Sigma-Aldrich SDS") routes SOURCE_SCOPED.
-    monkeypatch.setattr(main, "agent_ask", _stub({
+    _stub_agent(monkeypatch, {
         "answer": "The flash point of acetone is -17.0 C (closed cup).",
         "contexts": ["[source_doc_id=sds-sigma-aldrich-acetone page=7]\n..."],
         "chunks": [{"source_doc_id": "sds-sigma-aldrich-acetone", "page": 7, "text": "..."}],
         "route": "source_scoped", "source_doc_id": "sds-sigma-aldrich-acetone",
         "routing_reason": "Question attributed to a single named document: Acetone SDS",
-    }))
+    })
     r = client.post("/ask/agent", json={"question": "Flash point of acetone per the Sigma-Aldrich SDS?"})
     assert r.status_code == 200
     body = r.json()
@@ -105,11 +113,11 @@ def test_ask_agent_source_scoped_surfaces_doc_and_reason(monkeypatch):
 
 def test_ask_agent_refusal_maps_low_and_empty_citations(monkeypatch):
     # The shared assembly must behave identically to /ask on a refusal, whatever the route.
-    monkeypatch.setattr(main, "agent_ask", _stub({
+    _stub_agent(monkeypatch, {
         "answer": "The provided context does not contain the answer.",
         "contexts": [], "chunks": [{"source_doc_id": "sds-sigma-aldrich-acetone", "page": 1, "text": "..."}],
         "route": "direct", "source_doc_id": "", "routing_reason": None,
-    }))
+    })
     r = client.post("/ask/agent", json={"question": "What is the meaning of life?"})
     assert r.status_code == 200
     body = r.json()

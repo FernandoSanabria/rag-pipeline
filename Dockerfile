@@ -21,8 +21,12 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # 2) App code + the manifest the citation layer reads. NO PDFs, NO .env, NO tests, NO eval artifacts.
+# agent/ is the LangGraph orchestration layer wrapped by the /ask/agent endpoint — it MUST be copied
+# (the image uses PYTHONPATH + --no-install-project, so each top-level package needs an explicit COPY;
+# the pyproject wheel `packages` list does NOT apply here). Omitting it crashes uvicorn on startup.
 COPY src/ ./src/
 COPY api/ ./api/
+COPY agent/ ./agent/
 COPY data/manifest.json ./data/manifest.json
 
 # 3) Drop privileges.
