@@ -27,3 +27,15 @@ class AskResponse(BaseModel):
     citations: list[Citation]
     confidence_score: float
     confidence_basis: str
+
+
+class AgentAskResponse(AskResponse):
+    """/ask/agent response — AskResponse plus routing transparency (the endpoint's reason to exist).
+
+    `route` is what actually ran ("direct" | "source_scoped"); on the source-scoped path `source_doc_id`
+    and `routing_reason` name the single document the answer was scoped to. Both are null on the direct
+    path (incl. an execution fallback that downgraded a source-scoped classification to direct)."""
+
+    route: str
+    source_doc_id: str | None = None
+    routing_reason: str | None = None

@@ -26,6 +26,12 @@ Every answer is a typed contract — `answer`, `citations: [{document, page}]`, 
 
 _Free tier:_ the first request after idle cold-starts in ~30–60s; warm requests are fast. `GET /health` → `{"status":"ok"}`.
 
+### `POST /ask/agent` — the agentic path (routing transparency)
+
+`/ask/agent` serves the LangGraph agent instead of the frozen v4 pipeline. It returns the same typed contract **plus** `route` (`"direct"` | `"source_scoped"`), and — when a question is anchored to one named document (e.g. *"the flash point of acetone per the Sigma-Aldrich SDS"*) — `source_doc_id` and a human-readable `routing_reason`. Source-scoping recovers single-document lookups that the full-corpus path buries (the acetone flash point moves from rank ~19 to top-3, correctness 0.036 → 0.717).
+
+**Cost — read this before switching.** `/ask/agent` pays a `gpt-4o-mini` router call (~1s, ~$0.0001) on **every** request, including the ~85% of questions that then route direct and get the identical `/ask` answer. So it is the **richer** path (source-scoped routing + the transparency payload) at a **fixed per-request cost**, not a strict upgrade — `/ask` pays nothing and serves the same answer on a non-source-anchored question. Use `/ask/agent` when you want single-document scoping and to see the route taken; use `/ask` when you don't. A router hiccup or a filtered-retrieval failure/empty both fall back to the direct full-corpus path inside the graph, so the endpoint degrades to a full-corpus answer rather than erroring.
+
 ## Performance
 
 Indicative `/ask` latency, measured **warm** against the live free-tier service (n=18 varied questions, single session — a rough read, not a rigorous benchmark):
