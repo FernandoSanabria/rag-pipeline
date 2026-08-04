@@ -73,6 +73,36 @@ flowchart LR
 
 Embeddings: OpenAI `text-embedding-3-small`. Generation: `gpt-4o-mini` (temperature 0, fixed seed). The generator answers **only** from retrieved context, cites the source document, and returns an exact refusal sentence when the answer is absent — so a bad retrieval yields an honest "not in context," never a fabrication.
 
+### Request-serving graph — `/ask` vs `/ask/agent`
+
+The shipped pipeline is v4 dense retrieval over the **`semantic_v2`** namespace (structure-aware re-chunking — the 2B lever that recovered the NIOSH-IDLH-vs-EPA-endpoint comparison). On top of it, the LangGraph agent adds a **router** that source-scopes single-document questions. Two endpoints serve it:
+
+- **`POST /ask`** — the direct v4 path (`retrieve → generate`) on `semantic_v2`. The shipped, promoted default: no router, no per-request LLM tax.
+- **`POST /ask/agent`** — `router → {direct | source_scoped} → generate`. Pays a `gpt-4o-mini` router call (~1s, ~$0.0001) on **every** request to recover source-anchored questions (e.g. the acetone flash point "per the Sigma-Aldrich SDS"), and returns the route taken (`route` / `source_doc_id` / `routing_reason`). The richer path — **not** a drop-in replacement for `/ask`.
+
+<!-- regenerate: uv run python scripts/render_graph.py -->
+```mermaid
+graph TD;
+    __start__([START]):::first
+    router(router)
+    retrieve(retrieve)
+    source_scoped_retrieve(source_scoped_retrieve)
+    generate(generate)
+    __end__([END]):::last
+    __start__ --> router;
+    router -. direct .-> retrieve;
+    router -. source_scoped .-> source_scoped_retrieve;
+    retrieve --> generate;
+    source_scoped_retrieve --> generate;
+    generate --> __end__;
+    classDef first fill-opacity:0
+    classDef last fill:#bfb6fc
+```
+
+**Two safety properties are visible in the graph:** `source_scoped_retrieve` falls back to the direct full-corpus path on a filter failure or empty result, and `generate` short-circuits on `retrieval_error` — so a router hiccup or a bad metadata filter degrades to a valid answer, never a 500.
+
+**Observability:** the path taken is inspectable, not just diagrammed — LangSmith traces (`@traceable` spans, one per node) and `state["trace_notes"]` (one breadcrumb per node) both record the route each request actually followed.
+
 ## Corpus & provenance
 
 **19 documents** in two licensing tiers — a deliberate IP decision recorded per-document in [`data/manifest.json`](data/manifest.json):
