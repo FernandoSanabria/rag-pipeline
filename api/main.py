@@ -30,11 +30,15 @@ from fastapi import FastAPI
 # and in tests (conftest sets dummy env first; load_dotenv does not override existing vars).
 load_dotenv()
 
-from agent.graph import ask as agent_ask  # noqa: E402
 from api.citations import derive_citations  # noqa: E402
 from api.confidence import score_confidence  # noqa: E402
 from api.schemas import AgentAskResponse, AskRequest, AskResponse  # noqa: E402
 from src.pipeline import ask  # noqa: E402
+
+# NOTE: `agent.graph` is imported LAZILY inside ask_question_agent (not at module load) so the shipped
+# /ask path — and the whole app's startup — can never be coupled to the agent layer's import health.
+# An agent-side import problem then degrades to a 500 on /ask/agent ALONE, never a boot crash that
+# takes /ask down with it (which is exactly what a missing agent/ package once did to the deploy).
 
 app = FastAPI(
     title="Industrial-equipment-safety RAG API",
@@ -83,6 +87,8 @@ def ask_question_agent(req: AskRequest) -> AgentAskResponse:
     (incl. the ~85% that route direct) — see the module docstring; not a drop-in replacement for /ask.
     Router hiccups and filtered-retrieval failures/empties both fall back to the direct path inside the
     graph, so a classifier or metadata-filter problem degrades to a full-corpus answer, never a 500."""
+    from agent.graph import ask as agent_ask  # lazy (see module note): isolates /ask from agent import
+
     result = agent_ask(req.question)
     answer, citations, score, basis = _assemble(result)
     return AgentAskResponse(
