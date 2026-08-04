@@ -72,6 +72,13 @@ def _doc_catalog():
     return "\n".join(f"  {d['doc_id']}: {d['title']}" for d in _docs())
 
 
+@lru_cache(maxsize=1)
+def _doc_titles():
+    """doc_id -> human title (manifest). Used to render the endpoint's routing_reason; the
+    id->title lookup the router prompt (_doc_catalog) and validation (_known_doc_ids) don't expose."""
+    return {d["doc_id"]: d["title"] for d in _docs()}
+
+
 class RouteDecision(BaseModel):
     """Router output — the single-document source-scoping decision (2C)."""
 
@@ -129,20 +136,40 @@ def _route(state: AgentState) -> str:
 
 
 def source_scoped_retrieve_node(state: AgentState) -> dict:
-    """Dense retrieval filtered to the router-chosen document (2C). Same {retrieved, trace_notes}
-    contract + retrieval_error sentinel as retrieve_node."""
+    """Dense retrieval filtered to the router-chosen document (2C), with an EXECUTION fallback (2D).
+
+    The router try/except guards CLASSIFICATION; this guards EXECUTION — a distinct failure that only
+    occurs on the live wire (never in the byte-repro eval, where the 4 scoped rows all return chunks).
+    If the filtered query THROWS or returns ZERO chunks (valid doc_id, but nothing matched for any
+    reason), fall back to the DIRECT full-corpus retrieve for this request: a full-corpus answer beats
+    a 500 or a blank one. On fallback we DOWNGRADE the reported route to "direct" and clear
+    source_doc_id, so the response stays coherent (route=direct => no single-doc claim => citations may
+    span docs). This makes source_scoped_retrieve a SECOND, sequential writer of route/source_doc_id
+    after router_node (safe: no parallel branch touches them; see agent/state.py)."""
     question = state["question"]
     settings = get_settings()
+    ns = settings.retrieval_namespace
     k = settings.retrieval_k
     doc = state["source_doc_id"]
     try:
         retrieved = dense_search(question, k=k, source_doc_id=doc)
-        note = f"retrieve[source_scoped:{doc}]: dense_search(k={k}, ns={settings.retrieval_namespace}) -> {len(retrieved)} chunks"
-        return {"retrieved": retrieved, "trace_notes": [note]}
-    except Exception as exc:  # never abort the run / drop a row
+        if retrieved:
+            note = f"retrieve[source_scoped:{doc}]: dense_search(k={k}, ns={ns}) -> {len(retrieved)} chunks"
+            return {"retrieved": retrieved, "trace_notes": [note]}
+        reason = f"retrieve[source_scoped:{doc}]: 0 chunks matched -> direct fallback"
+    except Exception as exc:  # execution failure on the filtered query -> fall back, never abort
         logger.warning("source_scoped_retrieve error for %r: %s", question, exc)
-        note = f"retrieve[source_scoped:{doc}]: ERROR {type(exc).__name__}: {exc} -> 0 chunks"
-        return {"retrieved": [], "retrieval_error": True, "trace_notes": [note]}
+        reason = f"retrieve[source_scoped:{doc}]: ERROR {type(exc).__name__}: {exc} -> direct fallback"
+    try:
+        retrieved = dense_search(question, k=k)  # unfiltered = the v4 direct path
+        note = f"retrieve[direct-fallback]: dense_search(k={k}, ns={ns}) -> {len(retrieved)} chunks"
+        return {"retrieved": retrieved, "route": "direct", "source_doc_id": "",
+                "trace_notes": [reason, note]}
+    except Exception as exc:  # even the fallback threw -> mirror retrieve_node's sentinel
+        logger.warning("source_scoped direct-fallback error for %r: %s", question, exc)
+        note = f"retrieve[direct-fallback]: ERROR {type(exc).__name__}: {exc} -> 0 chunks"
+        return {"retrieved": [], "retrieval_error": True, "route": "direct", "source_doc_id": "",
+                "trace_notes": [reason, note]}
 
 
 def retrieve_node(state: AgentState) -> dict:
@@ -212,15 +239,39 @@ def _compiled_graph():
     return builder.compile()
 
 
+def _routing_reason(route: str, source_doc_id: str) -> str | None:
+    """Human-readable rationale for the route taken — the /ask/agent transparency payload (2D).
+    None on the direct path (nothing to explain); names the document on the source-scoped path."""
+    if route == "source_scoped" and source_doc_id:
+        return f"Question attributed to a single named document: {_doc_titles().get(source_doc_id, source_doc_id)}"
+    return None
+
+
 @traceable(name="agent_pipeline")
 def ask(question: str) -> dict:
-    """Entry adapter — mirrors src.pipeline.ask's frozen {answer, contexts, chunks} contract.
+    """Entry adapter — extends src.pipeline.ask's {answer, contexts, chunks} contract additively.
 
     Invokes the graph with a FRESH state per call (invariant (a)), then rebuilds contexts from
     the final `retrieved` so `contexts == format_contexts(retrieved)` byte-for-byte. `chunks` is
     the retrieved metadata list (aligned with contexts) the API layer derives citations from.
+
+    2D: also returns `route`/`source_doc_id`/`routing_reason` for the /ask/agent transparency
+    payload. This is PURELY ADDITIVE — eval/run_eval.py reads only `answer`/`contexts` by key, so
+    the extra keys are invisible to the RAGAS harness and the v4 byte-repro. `route`/`source_doc_id`
+    are always present post-invoke (router_node + fresh_state guarantee them); note the source-scoped
+    retrieve node may have DOWNGRADED route to "direct" on an execution fallback, so these reflect
+    what actually ran, not just the classifier's intent.
     """
     state = _compiled_graph().invoke(fresh_state(question))
     retrieved = state["retrieved"]
     contexts = format_contexts(retrieved)
-    return {"answer": state["answer"], "contexts": contexts, "chunks": retrieved}
+    route = state["route"]
+    source_doc_id = state["source_doc_id"]
+    return {
+        "answer": state["answer"],
+        "contexts": contexts,
+        "chunks": retrieved,
+        "route": route,
+        "source_doc_id": source_doc_id,
+        "routing_reason": _routing_reason(route, source_doc_id),
+    }

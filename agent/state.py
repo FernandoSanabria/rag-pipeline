@@ -16,7 +16,9 @@ EIGHT channels — six overwrite, two accumulate:
   field            reducer        why
   question         overwrite      set once at entry, read-only thereafter
   sub_questions    overwrite      produced whole by ONE node (decompose); no fan-in
-  route            overwrite      routing decision; single writer (router node, 2B)
+  route            overwrite      routing decision; router writes it, source-scoped retrieve may
+                                  DOWNGRADE it to "direct" on an execution fallback (2D) — both
+                                  sequential (never parallel), so overwrite stays correct
   retrieval_error  overwrite      True only when retrieve_node caught an exception; single writer
   retrieved        add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches
   answer           overwrite      produced by ONE node (generate); no fan-in
@@ -94,8 +96,8 @@ class AgentState(TypedDict):
 
     question: str                              # original user question — set at entry, read-only after
     sub_questions: list[str]                   # decomposition output; [] when not decomposed (v4 path)
-    route: str                                 # "direct" | "source_scoped" | "decomposed" — routing (single writer: router)
-    source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (writer: router)
+    route: str                                 # "direct" | "source_scoped" | "decomposed" — router sets it; source-scoped retrieve may downgrade to "direct" on 2D fallback (sequential)
+    source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (router; cleared by 2D fallback)
     retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
     retrieved: Annotated[list[dict], add]      # ACCUMULATE across parallel sub-query retrievals
     answer: str                                # final grounded answer (single writer: generate)
