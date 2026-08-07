@@ -127,20 +127,21 @@ This creates the virtualenv, installs all pinned dependencies, **and editable-in
 
 ## Usage
 
-Run everything from the repo root via `uv run`. The **shipped** configuration — the `semantic_v2` namespace (structure-aware re-chunk of the NIOSH Pocket Guide + acetone SDS; the 2B IDLH recovery, promoted after a fingerprint-matched like-for-like with no regression beyond −0.03) at depth **k=10** — is the default in [`src/config.py`](src/config.py) (`RETRIEVAL_NAMESPACE=semantic_v2`, `RETRIEVAL_K=10`); local/eval use that default, and **production pins it explicitly** in [`render.yaml`](render.yaml) so declared == live. Roll back to the v4 namespace with a one-line `render.yaml` PR (`RETRIEVAL_NAMESPACE=semantic`). Ingestion still selects semantic chunking explicitly, because `CHUNKING_STRATEGY` is an ingest-only knob that still defaults to `fixed_500_50`:
+Run everything from the repo root via `uv run`. The **shipped** configuration — the `semantic_v2` namespace (structure-aware re-chunk of the NIOSH Pocket Guide + acetone SDS; the 2B IDLH recovery, promoted after a fingerprint-matched like-for-like with no regression beyond −0.03) at depth **k=10** — is the default in [`src/config.py`](src/config.py) (`RETRIEVAL_NAMESPACE=semantic_v2`, `RETRIEVAL_K=10`); local/eval use that default, and **production pins it explicitly** in [`render.yaml`](render.yaml) so declared == live. Roll back to the v4 namespace with a one-line `render.yaml` PR (`RETRIEVAL_NAMESPACE=semantic`). Ingestion is **guarded**: `CHUNKING_STRATEGY` picks the namespace ingest *writes* (default `fixed_500_50`) while retrieval *reads* `RETRIEVAL_NAMESPACE` (default `semantic_v2`), so `src/ingest.py` refuses to run unless you set `RETRIEVAL_NAMESPACE` explicitly to match the write target — a bare defaults-only run fails loudly rather than populating a namespace nothing reads. The shipped `semantic_v2` is a **two-step build** (ingest `semantic`, then copy + re-chunk), not a direct ingest target:
 
 ```bash
-# Ingest the corpus into Pinecone — shipped (semantic) namespace (CHUNKING_STRATEGY defaults to fixed_500_50)
-CHUNKING_STRATEGY=semantic uv run python src/ingest.py
+# Build the shipped semantic_v2 namespace — (1) ingest the `semantic` namespace (explicit match required by the guard), then (2) copy + re-chunk
+RETRIEVAL_NAMESPACE=semantic CHUNKING_STRATEGY=semantic uv run python src/ingest.py
+uv run python scripts/build_semantic_v2.py   # copies 17 docs byte-identical + re-chunks the 2 targets -> semantic_v2 (1,756 vectors)
 
-# Evaluate the shipped pipeline (semantic namespace, k=10) with RAGAS over eval/dataset.jsonl — uses the config defaults
+# Evaluate the shipped pipeline (semantic_v2 namespace, k=10) with RAGAS over eval/dataset.jsonl — uses the config defaults
 uv run python eval/run_eval.py
 
 # Quick end-to-end sanity check of ask()
 uv run python scripts/smoke_test.py
 ```
 
-To reproduce an earlier baseline, override the retrieval env vars — e.g. the v1 baseline is `RETRIEVAL_NAMESPACE=fixed_500_50 RETRIEVAL_K=5 uv run python eval/run_eval.py`, ingested to `fixed_500_50` via the default `CHUNKING_STRATEGY` (`uv run python src/ingest.py`).
+To reproduce an earlier baseline, override the retrieval env vars — e.g. the v1 baseline is `RETRIEVAL_NAMESPACE=fixed_500_50 RETRIEVAL_K=5 uv run python eval/run_eval.py`, ingested to `fixed_500_50` with an explicit matching namespace: `RETRIEVAL_NAMESPACE=fixed_500_50 uv run python src/ingest.py` (default `CHUNKING_STRATEGY` already targets `fixed_500_50`; the guard just requires you to say so).
 
 ## Reproducibility
 
