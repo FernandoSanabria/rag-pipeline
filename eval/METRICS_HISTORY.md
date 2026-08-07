@@ -225,11 +225,16 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
       `page=46` for a `page=44` value — right document, wrong page. Step 5's citation contract is
       {document, page}; page-level citation reliability is an open generation-side concern, flagged
       here, not fixed.
-    - **Still unfixed by depth: IDLH and acetone.** Both are genuine retrieval misses at k=10 too — the
-      NIOSH-300 ammonia entry sits at rank 20 for the IDLH query, the acetone flash-point chunk at rank
-      107. Neither depth nor fusion surfaces them against a cross-source / tabular query; the real fix
-      is query decomposition (per-source sub-lookups) or table-aware extraction, scoped to **Phase 2
-      (agentic)** — not a retrieval-mode swap.
+    - **Still unfixed by depth: IDLH and acetone** *(v4-era note; superseded — see the Phase-2 outcome
+      below)*. Both are genuine retrieval misses at k=10 too — the NIOSH-300 ammonia entry sits at rank
+      20 for the IDLH query, the acetone flash-point chunk at rank 107. Neither depth nor fusion surfaces
+      them against a cross-source / tabular query. The v4-era guess was that the fix would be **query
+      decomposition** (per-source sub-lookups) or table-aware extraction, scoped to Phase 2 (agentic).
+      **⟶ Phase-2 outcome (SUPERSEDES this guess): query decomposition was FALSIFIED as the IDLH lever**
+      (`eval/decomp_probe_RESULT.md`, pre-reg `cc01954`) — the diagnosed root cause was fat multi-record
+      chunks, and the levers that actually worked were structure-aware re-chunking (IDLH; `semantic_v2`,
+      shipped on `/ask`) and source-scoped retrieval (acetone; shipped on `/ask/agent`). See the
+      semantic_v2 rows + notes above.
   - **Closing synthesis.** The Phase-1 retrieval arc was three orthogonal levers, each aimed at a
     diagnosed failure — semantic chunking (recall), the generation prompt (over-refusal + faithfulness),
     and retrieval depth (two cross-doc recoveries) — while two more-complex levers, IDLH BM25-fusion and

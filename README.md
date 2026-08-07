@@ -44,7 +44,7 @@ Indicative `/ask` latency, measured **warm** against the live free-tier service 
 
 **Generation dominates — take the _ratio_, not the seconds.** A separate local probe (n=4, k=10, run from a different machine with its own network path to OpenAI) splits the pipeline into retrieval ~1.6s vs generation ~4.2s: generation is **~3×** retrieval (up to ~88% on long procedural answers), so the bulk of `/ask` is the `gpt-4o-mini` call, not retrieval. Those absolute seconds intentionally **do not reconcile** with the deployed table above — their sum (~5.8s) even exceeds the 3.7s deployed P50 — because this is a smaller, different-infrastructure sample skewed toward the slow procedural questions, whereas the deployed P50 is a median over 18 that includes fast one-liners. Take only the ratio from it. On the deployed service, latency tracks answer length: fastest was the one-line refusal (1.7s), slowest the lockout/tagout sequence (13.2s).
 
-## Results
+## Results — the Phase-1 retrieval arc (v1 → v4)
 
 Five RAGAS metrics, scored against a hand-verified reference answer for each of the 28 eval questions. Each row is one measured change from a clean commit; full per-step deltas, the pre-registered prediction, and findings live in [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).
 
@@ -54,16 +54,18 @@ Five RAGAS metrics, scored against a hand-verified reference answer for each of 
 | v1 | dense retrieval + grounded generation (`fixed_500_50` chunks, k=5) | 0.7143 | 0.6335 | 0.7761 | 0.7173 | 0.4042 |
 | v2 | semantic chunking (1,258 chunks vs 7,635) | 0.7401 | 0.7092 | 0.8134 | 0.8889 | 0.5152 |
 | v3 | generation prompt (synthesis + comparison + ground-every-claim) | 0.8309 | 0.7607 | 0.8258 | 0.9107 | 0.5128 |
-| **v4** (shipped) | retrieval depth k=5 → **k=10** | **0.9697** | 0.8489 | 0.7589 | 0.9374 | **0.5667** |
+| **v4** (Phase-1 final) | retrieval depth k=5 → **k=10** | **0.9697** | 0.8489 | 0.7589 | 0.9374 | **0.5667** |
 
-Across four measured changes, **faithfulness rose 0.71 → 0.97** and **answer-correctness 0.40 → 0.57**. Faithfulness is the delta to trust — its run-to-run floor is ~0 (measured), so that climb is a credibility signal, not a lucky draw, whereas answer-correctness carries ~±0.03 judge noise (which is why the per-row reads, not the aggregate, settle close calls). The single metric that fell is context-precision at v4 (0.83 → 0.76) — the mechanical cost of grading twice as many chunks at k=10, not a quality loss: every per-row correctness dip was read and confirmed verbose-but-correct (faithfulness 1.0). The v4 aggregates are the mean of two fingerprint-tagged replicates.
+> **This table is the Phase-1 retrieval arc, not what the API serves today.** The live service runs the **`semantic_v2`** namespace — the Phase-2B structure-aware re-chunk, promoted after a fingerprint-matched like-for-like (see [Reproducibility](#reproducibility) and [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md)). v4 above is the last Phase-1 row (shipped retrieval depth `k=10`), not the live namespace.
+
+Across four measured changes, **faithfulness rose 0.71 → 0.97** and **answer-correctness 0.40 → 0.57**. Faithfulness is the delta to trust — its run-to-run floor is ~0 (measured), so that climb is a credibility signal, not a lucky draw. Answer-correctness is noisier, on two scales: a *single* per-row or aggregate move under **~±0.03** is treated as noise rather than signal, and the *replicate* spread is wider still — the v4 aggregates are the mean of two fingerprint-tagged replicates whose answer-correctness came in at **0.604 vs 0.529** (~0.075 apart, 13 of 28 responses differing between them). That is exactly why the per-row reads, not the aggregate, settle close calls. The single metric that fell is context-precision at v4 (0.83 → 0.76) — the mechanical cost of grading twice as many chunks at k=10, not a quality loss: every per-row correctness dip was read and confirmed verbose-but-correct (faithfulness 1.0).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    C["19-doc corpus<br/>OSHA, EPA, NIOSH, SDS, manuals"] --> CH["semantic chunking<br/>1,258 chunks"]
-    CH --> P[("Pinecone<br/>dense retrieval, k=10")]
+    C["19-doc corpus<br/>OSHA, EPA, NIOSH, SDS, manuals"] --> CH["structure-aware re-chunk<br/>semantic_v2 · 1,756 vectors"]
+    CH --> P[("Pinecone<br/>semantic_v2 namespace · dense retrieval, k=10")]
     Q["question"] --> P
     P --> G["grounded generation<br/>cite-or-refuse"]
     G --> A["answer + citations"]
@@ -152,23 +154,26 @@ Each version regenerates by **checking out its commit and running the eval with 
 | v1 | `a76f09a` | `fixed_500_50` | 5 | `v1_fixed_500_50_*` |
 | v2 | `87ae545` | `semantic` | 5 | `v2_semantic_*` |
 | v3 | `6b416ed` | `semantic` | 5 | `v3_prompt_*` |
-| **v4** (shipped) | `5e742d2` | `semantic` | 10 | `v4_densek10_*` |
+| v4 (Phase-1 final) | `5e742d2` | `semantic` | 10 | `v4_densek10_*` |
+| graph-v4 (2A) | `fec0958` | `semantic` | 10 | `graph_v4_agent_20260723T221534Z` |
+| **semantic_v2** (shipped) | `7345619` build · `77e1f50` promote | `semantic_v2` | 10 | `eval_20260802T211136Z` |
+| agent (2C router) | `fb4eb6b` | `semantic_v2` | 10 | `eval_20260803T234054Z` |
 
-Worked example — regenerate the shipped v4 numbers:
+The **semantic_v2** row is the live namespace (promoted on a fingerprint-matched like-for-like, `e652a53` / [`eval/rechunk_2bc_likeforlike.md`](eval/rechunk_2bc_likeforlike.md); default in `src/config.py`, pinned in `render.yaml`). The **agent** row is the source-scoped router served on `/ask/agent` (`PIPELINE=agent`). Worked example — regenerate the shipped semantic_v2 numbers (or swap `semantic` for the v4 baseline):
 
 ```bash
-RETRIEVAL_NAMESPACE=semantic RETRIEVAL_K=10 uv run python eval/run_eval.py
+RETRIEVAL_NAMESPACE=semantic_v2 RETRIEVAL_K=10 uv run python eval/run_eval.py
 ```
 
 Three honest caveats:
 
-- **Aggregates reproduce within a documented noise floor (~±0.03 answer-correctness; faithfulness ~0), not byte-identically.** Generation is not run-to-run deterministic — an identical-config rerun differed on 14 of 28 rows, and OpenAI's backend `system_fingerprint` drifts between runs (a matching fingerprint doesn't even guarantee identical output across time-separated runs). This is characterized and expected, which is exactly why per-row reads — not the aggregate — are treated as the verdict.
+- **Aggregates reproduce within a documented noise floor, not byte-identically.** Two scales: a *single* per-row or aggregate answer-correctness move under **~±0.03** is treated as noise (faithfulness's floor is ~0), while the *replicate* spread is wider — the two k=10 v4 replicates scored answer-correctness **0.604 vs 0.529** (~0.075 apart, 13 of 28 responses differing), and the v4 headline is their mean. Generation is not run-to-run deterministic — an identical-config rerun differed on 14 of 28 rows, and OpenAI's backend `system_fingerprint` drifts between runs (a matching fingerprint doesn't even guarantee identical output across time-separated runs). This is characterized and expected, which is exactly why per-row reads — not the aggregate — are treated as the verdict.
 - **Full reproduction needs your own resources:** a Pinecone index, an OpenAI key, and the corpus ingested. Because the Tier-2 vendor PDFs are gitignored, a fresh clone cannot fully re-ingest the corpus without obtaining those sources.
 - **[`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md)** holds the full per-version detail — deltas, the pre-registered prediction for each change, and the findings (including the two falsified levers) — rather than duplicating it here.
 
 ## Known limitations / deferred
 
-- **Two rows are still retrieval misses at k=10:** the NIOSH-IDLH-vs-EPA-endpoint comparison and the acetone flash-point lookup. In each, the needed value sits in a cross-source or dense tabular chunk that is lexically and semantically dissimilar to the natural-language question, so neither greater depth nor lexical (BM25) fusion surfaces it — the latter was probed and falsified. The real fix is **query decomposition** (per-source sub-lookups) or table-aware extraction, scoped to Phase 2 (agentic).
+- **Both former hard rows are now RECOVERED — and decomposition, the obvious fix, was falsified first.** The NIOSH-IDLH-vs-EPA comparison and the acetone flash-point lookup were both retrieval misses at k=10. A read-only probe **falsified query decomposition** as the IDLH lever before any of it was built — the answer chunk was absent from the top 100 for every reformulation, and you can't retrieve what isn't there — pinning the real root cause: **fat multi-record chunks** diluting each fact's embedding below dense reach. The two levers that actually worked: **structure-aware re-chunking** (namespace `semantic_v2`) recovered IDLH, now served on `/ask` as the promoted default; and a **source-scoped router** recovered acetone (correctness 0.036 → 0.717, read-verified −17.0 °C), served on `/ask/agent`. Reporting the falsification is the point, not an embarrassment — it killed a whole build for the cost of a few retrieval calls. Full ledger: [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).
 - **Page-level citation accuracy is imperfect:** one recovered answer cited the correct *document* but the wrong *page*. The `{document, page}` citation contract is an open generation-side concern for the forthcoming API service (Step 5).
 
 ## Links
