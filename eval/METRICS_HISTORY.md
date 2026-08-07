@@ -17,7 +17,9 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 | Δ v4−v3-dense(k5) | vs same-commit k=5 re-run (2× mean 0.828/0.763/0.818/0.911/0.534) | +0.1421 | +0.0863 | −0.0594 | +0.0267 | **+0.0322** | | |
 | graph-v4 (2A) | Phase-2A LangGraph skeleton = the v4 path (retrieve→generate) wrapped in a graph, `PIPELINE=agent`; semantic ns, k=10, prompt/chunking UNCHANGED; single run (fp `fp_6cc92eaef9`, = v4's primary) | 0.9546 | 0.8740 | 0.7523 | 0.9479 | **0.5891** | `fec0958` | `graph_v4_agent_20260723T221534Z.json` |
 | Δ graph-v4 − v4 | all five within ±0.03; same fingerprint (no drift caveat) | −0.0151 | +0.0251 | −0.0066 | +0.0105 | **+0.0224** | | |
-| semantic_v2 (2B/2C) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)**; NOT promoted. Read-verified per-row, NOT a band comparison | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `7345619` | `eval_20260802T211136Z.json` (gitignored) |
+| semantic_v2 — Gate-2 (first gate, drift-confounded) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)** → aggregates DIRECTIONAL, NOT a band pass; read-verified per-row. **Superseded for the promotion decision by the fp-matched like-for-like below** (kept as history, not deleted) | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `7345619` | `eval_20260802T211136Z.json` (gitignored) |
+| semantic_v2 — fp-matched like-for-like (**PROMOTION BASIS**) | interleaved v2-vs-v4 per row, **BOTH arms fp `fp_c881474fd1`, 28/28 rows shared (zero backend drift)**; v2-side aggregates over the per-metric non-NaN intersection (n = 19/28/28/20/28); Δ(v2−fresh-v4) = +0.0077 / +0.0351 / −0.0186 / +0.0458 / +0.0101 — sole negative is precision −0.0186 (in-band); cleared the corrected asymmetric bar (`328c278`) → **PROMOTED** default `RETRIEVAL_NAMESPACE=semantic_v2` (`77e1f50`) | 0.9474 | 0.8702 | 0.7444 | 0.9833 | **0.5932** | `e652a53` | `eval/rechunk_2bc_likeforlike.md` (+ gitignored `scripts/likeforlike_result.json`) |
+| semantic_v2 + source-scoped router (2C, agent) | `PIPELINE=agent`, semantic_v2, k=10; single run, **fp `fp_c881474fd1` ×28**; router source-scopes single-document rows (21–24), everything else routes DIRECT; **acetone (row 24) answer_correctness 0.036 → 0.717, read-verified −17.0 °C — FULL 28-row eval** (0.036 baseline = the Gate-2 semantic_v2 no-router row above). Ships on `/ask/agent` (Phase 2D) | 0.9778 | 0.8876 | 0.7310 | 0.9674 | **0.6305** | `fb4eb6b` | `eval_20260803T234054Z.json` (gitignored) |
 
 ## Notes
 - **semantic_v2 (Phase 2B/2C) — structure-aware re-chunking; IDLH RECOVERED, acetone a recorded
@@ -27,9 +29,10 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     Guide chunk; acetone flash point in a 5,487-char SDS Sections-9–11 blob) — a shared diagnosis.
   - **Lever = structure-aware re-chunking** into `semantic_v2` (name-anchored per-entry NIOSH + prose
     fallback; per-section acetone), built by `scripts/build_semantic_v2.py` (Approach B: 886 copied
-    byte-identical + 870 re-chunked = 1756 vectors), **gated, NOT promoted** (default
-    `RETRIEVAL_NAMESPACE` stays `semantic`). Design + pre-reg `eval/rechunk_2bc_design.md` (`2d94a89`);
-    gate amendment `92aefe7`.
+    byte-identical + 870 re-chunked = 1756 vectors), and **PROMOTED to the default
+    `RETRIEVAL_NAMESPACE=semantic_v2`** (`77e1f50`) once the fingerprint-matched like-for-like cleared
+    the corrected asymmetric bar (see the PROMOTION note below). Design + pre-reg
+    `eval/rechunk_2bc_design.md` (`2d94a89`); gate amendment `92aefe7`.
   - **IDLH (row 8) FULL RECOVERY, read-verified:** answer states **NIOSH IDLH 300 ppm + EPA endpoint
     200 ppm + the comparison**; correctness **0.362→0.667**; **citation p44→p45 (ground-truth
     aligned** — the pre-registered citation prediction, confirmed). Gate-1: ammonia entry
@@ -41,13 +44,41 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
   - **Invariant 16/19 byte-identical, 0 copy bugs** (two-sided reconcile + verify-by-refetch held);
     3 benign target-doc INTRUSIONS (rows 7/20/25 — a finer NIOSH entry entering top-10), **row 20
     +0.61, none regressed**. At-risk (9 rows) moved as predicted; no confident-wrong.
-  - **CAVEAT:** Gate-2 ran on **`fp_c881474fd1` ≠ v4's `fp_6cc92eaef9`** → aggregates are DIRECTIONAL,
-    NOT a clean ±0.03 band pass; the win is read-verified PER-ROW (8/20/24), not argued from
-    aggregates. Aggregate correctness +0.01 masks the structure (+0.30 IDLH, −0.15 acetone, +0.61 row 20).
+  - **CAVEAT (about Gate-2 only):** Gate-2 ran on **`fp_c881474fd1` ≠ v4's `fp_6cc92eaef9`** →
+    aggregates are DIRECTIONAL, NOT a clean ±0.03 band pass; the win is read-verified PER-ROW
+    (8/20/24), not argued from aggregates. Aggregate correctness +0.01 masks the structure (+0.30
+    IDLH, −0.15 acetone, +0.61 row 20). **This caveat is about Gate-2; the promotion did NOT rest on
+    it — see PROMOTION below.**
+  - **PROMOTION (supersedes the Gate-2 caveat above; this is what actually shipped):** the drift that
+    caveat flags was FIXED by the fingerprint-matched like-for-like (`e652a53`,
+    `eval/rechunk_2bc_likeforlike.md`) — v4 and v2 re-run interleaved under ONE backend, **28/28 rows
+    shared `fp_c881474fd1`**. Over that matched intersection no metric regressed beyond −0.03
+    (precision −0.0186 the largest), so under the corrected asymmetric bar (`328c278`) semantic_v2 was
+    **PROMOTED** as the default namespace (`77e1f50`; pinned in `render.yaml`, `5ac5419`). Chronology:
+    7345619 build → 7b83dc5 Gate-2 (this row's original "NOT promoted" verdict) → 1f88b10 like-for-like
+    pre-reg → e652a53 matched result → 328c278 bar correction → 77e1f50 promote. **Honest caveats:**
+    (a) the like-for-like's v4 arm is a FRESH re-run under `fp_c881474fd1` — the correct way to isolate
+    the namespace variable (both arms, one backend), but NOT re-anchored to the canonical v4 row
+    `fp_6cc92eaef9`, so its v4 numbers (0.9397/0.8351/0.7630/0.9375/0.5831) differ from the v4 row above;
+    (b) faithfulness/recall deltas are over reduced n (19/20 after NaN/judge-timeout drops) while the
+    decisive precision −0.0186 is full n=28; (c) the raw scored JSON is gitignored
+    (`scripts/likeforlike_result.json`), so the durable committed artifact is the doc's table.
+  - **Cross-run numbers, disambiguated (same row, different runs — NOT a transcription error):** IDLH
+    (row 8) correctness reads **0.362→0.667** in this note (Gate-2 drift run; `eval_20260802…` row-8 =
+    0.6671) but **0.363→0.974** in the matched like-for-like (`eval/rechunk_2bc_likeforlike.md`), and
+    0.633 in the agent run (`eval_20260803…`, routed DIRECT). Acetone's v4 baseline reads **0.183**
+    (canonical v4) here but **0.114** (fresh-v4) in the like-for-like; the semantic_v2-DIRECT endpoint
+    is 0.036 in both. Always cite the run alongside the number.
   - **Diagnosed acetone next-lever (corrected by READING the ranks, not guessed):** the 17 chunks
     above the acetone Section-9 chunk are NIOSH per-entry chunks (Acetone p33 + acetates) flooding
     the "acetone" query — so the lever is **source-scoped retrieval / scoped BM25**, NOT per-property
     chunking. (This NIOSH-competitiveness is also the intrusion mechanism above.)
+  - **Acetone RECOVERED (that lever built + shipped):** the source-scoped router (2C, `fb4eb6b`) took
+    acetone **0.036 → 0.717, read-verified −17.0 °C** in a full 28-row agent eval
+    (`eval_20260803T234054Z.json`), and it is served on `/ask/agent` (Phase 2D, `ee4fc76`/`3d7efb5`).
+    So the recorded NEGATIVE above holds only for the semantic_v2 **DIRECT** path (`/ask`, which still
+    refuses at 0.036); via the router (`/ask/agent`) acetone recovers. Decomposition stays FALSIFIED as
+    the IDLH lever — the two real levers were re-chunking (IDLH) and source-scoping (acetone).
 - **graph-v4 (Phase 2A) — the agentic skeleton reproduces v4; two senses of "reproduce", kept
   distinct.** (1) INPUT-reproduction (the strong proof): a same-process, interleaved A/B repro probe
   pushed all 28 questions through both `src.pipeline.ask` (v4) and `agent.graph.ask` and byte-diffed
