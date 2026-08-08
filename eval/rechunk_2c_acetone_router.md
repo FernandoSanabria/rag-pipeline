@@ -75,8 +75,10 @@ check first over-scoped the general MOC question — the pre-eval check is the p
 - **Router cost:** 1 gpt-4o-mini structured call/question (~600 in / ~15 out tok ≈ $0.0001/q, ≈$0.003
   for all 28; ~1 s latency), paid on EVERY question incl. the 24 that then go direct.
 
-## ROUTER DOES NOT SHIP — demonstrated, not deployed
-**`/ask` serves `src.pipeline.ask` (v4 direct path, `semantic_v2`); the router runs ONLY under
-`PIPELINE=agent` in eval. 2C acetone recovery is DEMONSTRATED, not DEPLOYED.** Shipping it = the
-deferred **2D `/ask/agent` endpoint**, a separate decision. So on the live wire only the 2B IDLH win
-is served; acetone recovery is proven in eval but not on the endpoint.
+## ROUTER — demonstrated in 2C, SHIPPED in 2D on `/ask/agent`
+**As of this 2C record the router was demonstrated in eval only** (`PIPELINE=agent`): `/ask` served
+`src.pipeline.ask` (v4 direct path, `semantic_v2`), the router was not on the live wire, and 2C acetone
+recovery was DEMONSTRATED, not yet DEPLOYED. **Update — it shipped in Phase 2D:** `POST /ask/agent` now
+serves the router (`ee4fc76` / `3d7efb5`, merged), so acetone recovery is live on the wire via the agent
+endpoint, while `/ask` continues to serve the 2B IDLH win on `semantic_v2`. (The 2C-scope framing above
+is preserved as the record of what was true when this result was written.)
