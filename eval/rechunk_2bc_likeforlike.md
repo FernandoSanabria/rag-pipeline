@@ -64,14 +64,14 @@ worse (recall is a RAGAS-noisy metric over n=20, so directional). **No metric re
 both in ±0.03. (The scratch script's all-5 `band_ok` flagged replicate, but that is stricter than the
 pre-registered faith-OR-correctness trigger; not binding.) No replicate run.
 
-**Promotion-bar mapping (`1f88b10`):** IDLH read-verified recovered ✓ · 0 confident-wrong ✓ (acetone
+**Promotion-bar mapping (`b38b026`):** IDLH read-verified recovered ✓ · 0 confident-wrong ✓ (acetone
 refuses; changed rows moved up/held) · invariant COPY-integrity intact ✓ (0 copy bugs; but 3
 "invariant" rows moved UP via finer-NIOSH intrusion) · **all-5-within-±0.03 ✗ — failed ONLY because
 relevancy + recall IMPROVED beyond +0.03, not by any regression.** So the bar's letter fails on
 over-performance; its spirit (no regression, quality held-or-better) passes. Promotion is a judgment
 call for the reviewer, not an automatic disqualify. `semantic_v2` was NOT promoted *in this doc* — that
-was a separate later decision, and it WAS made: under the corrected asymmetric bar (`328c278`) semantic_v2
-was **PROMOTED** as the default `RETRIEVAL_NAMESPACE` (`77e1f50`), pinned in `render.yaml` (`5ac5419`). See
+was a separate later decision, and it WAS made: under the corrected asymmetric bar (`cef7e24`) semantic_v2
+was **PROMOTED** as the default `RETRIEVAL_NAMESPACE` (`8205164`), pinned in `render.yaml` (`4979002`). See
 BAR CORRECTION below for the corrected criterion this promotion was decided against.
 
 ## BAR CORRECTION (spec fix, recorded before the promotion decision)

@@ -5,34 +5,36 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 `reference`). Every row runs from a clean commit; full provenance lives in the matching
 `eval/results/*.json` (gitignored).
 
+> **Commit-hash note.** All commit hashes in this repository were rewritten on **2026-08-08** to consolidate author identity to a single GitHub account (`FernandoSanabria`). File content and commit order are unchanged; the SHAs cited below were remapped old→new accordingly. Archived copies and old clones will carry the pre-rewrite SHAs.
+
 | Row | Pipeline / strategy | faithfulness | answer_relevancy | context_precision | context_recall | answer_correctness | commit | result file |
 |---|---|--:|--:|--:|--:|--:|---|---|
-| v0 | empty stub (baseline floor) | null | 0.0000 | 0.0000 | 0.0000 | not_measured | `9fd0dc7` | `baseline_v0_20260707T002946Z.json` |
-| v1 | dense retrieval + generation, `fixed_500_50` chunking, k=5 | 0.7143 | 0.6335 | 0.7761 | 0.7173 | **0.4042** | `a76f09a` | `v1_fixed_500_50_20260709T033851Z.json` |
-| v2 | semantic boundaries + variable/larger chunks (1258 vs 7635; k=5) | 0.7401 | 0.7092 | 0.8134 | 0.8889 | **0.5152** | `87ae545` | `v2_semantic_20260710T165058Z.json` |
+| v0 | empty stub (baseline floor) | null | 0.0000 | 0.0000 | 0.0000 | not_measured | `549b283` | `baseline_v0_20260707T002946Z.json` |
+| v1 | dense retrieval + generation, `fixed_500_50` chunking, k=5 | 0.7143 | 0.6335 | 0.7761 | 0.7173 | **0.4042** | `2d8c903` | `v1_fixed_500_50_20260709T033851Z.json` |
+| v2 | semantic boundaries + variable/larger chunks (1258 vs 7635; k=5) | 0.7401 | 0.7092 | 0.8134 | 0.8889 | **0.5152** | `37cf509` | `v2_semantic_20260710T165058Z.json` |
 | Δ v2−v1 | | +0.0258 | +0.0757 | +0.0373 | +0.1716 | **+0.1110** | | |
-| v3 | generation prompt (synthesis + comparison + ground-claims); semantic ns UNCHANGED, k=5 | 0.8309 | 0.7607 | 0.8258 | 0.9107 | **0.5128** | `6b416ed` | `v3_prompt_20260710T173937Z.json` |
+| v3 | generation prompt (synthesis + comparison + ground-claims); semantic ns UNCHANGED, k=5 | 0.8309 | 0.7607 | 0.8258 | 0.9107 | **0.5128** | `418a7e3` | `v3_prompt_20260710T173937Z.json` |
 | Δ v3−v2 | | +0.0908 | +0.0515 | +0.0125 | +0.0218 | **−0.0024** | | |
-| v4 | dense retrieval, semantic ns, **k=10** (`RETRIEVAL_K`); prompt/chunking UNCHANGED | 0.9697 | 0.8489 | 0.7589 | 0.9374 | **0.5667** | `5e742d2` | `v4_densek10_20260710T235333Z` + `…000441Z` (k=10, 2× mean) |
+| v4 | dense retrieval, semantic ns, **k=10** (`RETRIEVAL_K`); prompt/chunking UNCHANGED | 0.9697 | 0.8489 | 0.7589 | 0.9374 | **0.5667** | `4e31f08` | `v4_densek10_20260710T235333Z` + `…000441Z` (k=10, 2× mean) |
 | Δ v4−v3-dense(k5) | vs same-commit k=5 re-run (2× mean 0.828/0.763/0.818/0.911/0.534) | +0.1421 | +0.0863 | −0.0594 | +0.0267 | **+0.0322** | | |
-| graph-v4 (2A) | Phase-2A LangGraph skeleton = the v4 path (retrieve→generate) wrapped in a graph, `PIPELINE=agent`; semantic ns, k=10, prompt/chunking UNCHANGED; single run (fp `fp_6cc92eaef9`, = v4's primary) | 0.9546 | 0.8740 | 0.7523 | 0.9479 | **0.5891** | `fec0958` | `graph_v4_agent_20260723T221534Z.json` |
+| graph-v4 (2A) | Phase-2A LangGraph skeleton = the v4 path (retrieve→generate) wrapped in a graph, `PIPELINE=agent`; semantic ns, k=10, prompt/chunking UNCHANGED; single run (fp `fp_6cc92eaef9`, = v4's primary) | 0.9546 | 0.8740 | 0.7523 | 0.9479 | **0.5891** | `baf9061` | `graph_v4_agent_20260723T221534Z.json` |
 | Δ graph-v4 − v4 | all five within ±0.03; same fingerprint (no drift caveat) | −0.0151 | +0.0251 | −0.0066 | +0.0105 | **+0.0224** | | |
-| semantic_v2 — Gate-2 (first gate, drift-confounded) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)** → aggregates DIRECTIONAL, NOT a band pass; read-verified per-row. **Superseded for the promotion decision by the fp-matched like-for-like below** (kept as history, not deleted) | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `7345619` | `eval_20260802T211136Z.json` (gitignored) |
-| semantic_v2 — fp-matched like-for-like (**PROMOTION BASIS**) | interleaved v2-vs-v4 per row, **BOTH arms fp `fp_c881474fd1`, 28/28 rows shared (zero backend drift)**; v2-side aggregates over the per-metric non-NaN intersection (n = 19/28/28/20/28); Δ(v2−fresh-v4) = +0.0077 / +0.0351 / −0.0186 / +0.0458 / +0.0101 — sole negative is precision −0.0186 (in-band); cleared the corrected asymmetric bar (`328c278`) → **PROMOTED** default `RETRIEVAL_NAMESPACE=semantic_v2` (`77e1f50`) | 0.9474 | 0.8702 | 0.7444 | 0.9833 | **0.5932** | `e652a53` | `eval/rechunk_2bc_likeforlike.md` (+ gitignored `scripts/likeforlike_result.json`) |
-| semantic_v2 + source-scoped router (2C, agent) | `PIPELINE=agent`, semantic_v2, k=10; single run, **fp `fp_c881474fd1` ×28**; router source-scopes single-document rows (21–24), everything else routes DIRECT; **acetone (row 24) answer_correctness 0.036 → 0.717, read-verified −17.0 °C — FULL 28-row eval** (0.036 baseline = the Gate-2 semantic_v2 no-router row above). Ships on `/ask/agent` (Phase 2D) | 0.9778 | 0.8876 | 0.7310 | 0.9674 | **0.6305** | `fb4eb6b` | `eval_20260803T234054Z.json` (gitignored) |
+| semantic_v2 — Gate-2 (first gate, drift-confounded) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)** → aggregates DIRECTIONAL, NOT a band pass; read-verified per-row. **Superseded for the promotion decision by the fp-matched like-for-like below** (kept as history, not deleted) | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `6040ce3` | `eval_20260802T211136Z.json` (gitignored) |
+| semantic_v2 — fp-matched like-for-like (**PROMOTION BASIS**) | interleaved v2-vs-v4 per row, **BOTH arms fp `fp_c881474fd1`, 28/28 rows shared (zero backend drift)**; v2-side aggregates over the per-metric non-NaN intersection (n = 19/28/28/20/28); Δ(v2−fresh-v4) = +0.0077 / +0.0351 / −0.0186 / +0.0458 / +0.0101 — sole negative is precision −0.0186 (in-band); cleared the corrected asymmetric bar (`cef7e24`) → **PROMOTED** default `RETRIEVAL_NAMESPACE=semantic_v2` (`8205164`) | 0.9474 | 0.8702 | 0.7444 | 0.9833 | **0.5932** | `529528e` | `eval/rechunk_2bc_likeforlike.md` (+ gitignored `scripts/likeforlike_result.json`) |
+| semantic_v2 + source-scoped router (2C, agent) | `PIPELINE=agent`, semantic_v2, k=10; single run, **fp `fp_c881474fd1` ×28**; router source-scopes single-document rows (21–24), everything else routes DIRECT; **acetone (row 24) answer_correctness 0.036 → 0.717, read-verified −17.0 °C — FULL 28-row eval** (0.036 baseline = the Gate-2 semantic_v2 no-router row above). Ships on `/ask/agent` (Phase 2D) | 0.9778 | 0.8876 | 0.7310 | 0.9674 | **0.6305** | `088d5c2` | `eval_20260803T234054Z.json` (gitignored) |
 
 ## Notes
 - **semantic_v2 (Phase 2B/2C) — structure-aware re-chunking; IDLH RECOVERED, acetone a recorded
   NEGATIVE. This is the article's evidence base — read per-row, not from aggregates.**
-  - **Decomposition FALSIFIED as the IDLH lever** (`eval/decomp_probe_RESULT.md`; pre-reg `cc01954`).
+  - **Decomposition FALSIFIED as the IDLH lever** (`eval/decomp_probe_RESULT.md`; pre-reg `e63bbc3`).
     Root cause = FAT MULTI-RECORD chunks (the ammonia IDLH-300 entry buried in a 5-chemical Pocket-
     Guide chunk; acetone flash point in a 5,487-char SDS Sections-9–11 blob) — a shared diagnosis.
   - **Lever = structure-aware re-chunking** into `semantic_v2` (name-anchored per-entry NIOSH + prose
     fallback; per-section acetone), built by `scripts/build_semantic_v2.py` (Approach B: 886 copied
     byte-identical + 870 re-chunked = 1756 vectors), and **PROMOTED to the default
-    `RETRIEVAL_NAMESPACE=semantic_v2`** (`77e1f50`) once the fingerprint-matched like-for-like cleared
+    `RETRIEVAL_NAMESPACE=semantic_v2`** (`8205164`) once the fingerprint-matched like-for-like cleared
     the corrected asymmetric bar (see the PROMOTION note below). Design + pre-reg
-    `eval/rechunk_2bc_design.md` (`2d94a89`); gate amendment `92aefe7`.
+    `eval/rechunk_2bc_design.md` (`8bd1899`); gate amendment `e39a920`.
   - **IDLH (row 8) FULL RECOVERY, read-verified:** answer states **NIOSH IDLH 300 ppm + EPA endpoint
     200 ppm + the comparison**; correctness **0.362→0.667**; **citation p44→p45 (ground-truth
     aligned** — the pre-registered citation prediction, confirmed). Gate-1: ammonia entry
@@ -50,13 +52,13 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     IDLH, −0.15 acetone, +0.61 row 20). **This caveat is about Gate-2; the promotion did NOT rest on
     it — see PROMOTION below.**
   - **PROMOTION (supersedes the Gate-2 caveat above; this is what actually shipped):** the drift that
-    caveat flags was FIXED by the fingerprint-matched like-for-like (`e652a53`,
+    caveat flags was FIXED by the fingerprint-matched like-for-like (`529528e`,
     `eval/rechunk_2bc_likeforlike.md`) — v4 and v2 re-run interleaved under ONE backend, **28/28 rows
     shared `fp_c881474fd1`**. Over that matched intersection no metric regressed beyond −0.03
-    (precision −0.0186 the largest), so under the corrected asymmetric bar (`328c278`) semantic_v2 was
-    **PROMOTED** as the default namespace (`77e1f50`; pinned in `render.yaml`, `5ac5419`). Chronology:
-    7345619 build → 7b83dc5 Gate-2 (this row's original "NOT promoted" verdict) → 1f88b10 like-for-like
-    pre-reg → e652a53 matched result → 328c278 bar correction → 77e1f50 promote. **Honest caveats:**
+    (precision −0.0186 the largest), so under the corrected asymmetric bar (`cef7e24`) semantic_v2 was
+    **PROMOTED** as the default namespace (`8205164`; pinned in `render.yaml`, `4979002`). Chronology:
+    6040ce3 build → 48466ab Gate-2 (this row's original "NOT promoted" verdict) → b38b026 like-for-like
+    pre-reg → 529528e matched result → cef7e24 bar correction → 8205164 promote. **Honest caveats:**
     (a) the like-for-like's v4 arm is a FRESH re-run under `fp_c881474fd1` — the correct way to isolate
     the namespace variable (both arms, one backend), but NOT re-anchored to the canonical v4 row
     `fp_6cc92eaef9`, so its v4 numbers (0.9397/0.8351/0.7630/0.9375/0.5831) differ from the v4 row above;
@@ -69,12 +71,12 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     text); **this row's aggregate table is a rendering of that file**, and a reader recomputes the five Δ
     from it directly (its header states the aggregation rule); (d) **the promotion criterion was AMENDED
     post-hoc.** A bar *was* pre-registered before the run — symmetric, "all 5 metrics within ±0.03 on the
-    matched intersection" (`1f88b10`, 20:58, ahead of the 21:30 result) — and then amended: the matched
-    result (`e652a53`, 21:30) landed BEFORE the bar was corrected to asymmetric (`328c278`, 21:38), which
-    landed before the promotion (`77e1f50`, 21:46). The correction is right on the merits — under the
+    matched intersection" (`b38b026`, 20:58, ahead of the 21:30 result) — and then amended: the matched
+    result (`529528e`, 21:30) landed BEFORE the bar was corrected to asymmetric (`cef7e24`, 21:38), which
+    landed before the promotion (`8205164`, 21:46). The correction is right on the merits — under the
     original symmetric ±0.03 the run would have FAILED, and only on two metrics that IMPROVED past the
     band (`answer_relevancy` **+0.0351**, `context_recall` **+0.0458**); a gate that fails a change for
-    getting better is defective. `328c278`'s own commit message records the motive contemporaneously:
+    getting better is defective. `cef7e24`'s own commit message records the motive contemporaneously:
     *"Forced by relevancy +0.035 and recall +0.046 (both improvements) → cannot be motivated reasoning;
     would not have changed had they moved down. … Recorded before the promotion PR."* Still, amending a
     criterion after seeing the result is weaker evidence than pre-registering the asymmetric form would
@@ -90,9 +92,9 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     above the acetone Section-9 chunk are NIOSH per-entry chunks (Acetone p33 + acetates) flooding
     the "acetone" query — so the lever is **source-scoped retrieval / scoped BM25**, NOT per-property
     chunking. (This NIOSH-competitiveness is also the intrusion mechanism above.)
-  - **Acetone RECOVERED (that lever built + shipped):** the source-scoped router (2C, `fb4eb6b`) took
+  - **Acetone RECOVERED (that lever built + shipped):** the source-scoped router (2C, `088d5c2`) took
     acetone **0.036 → 0.717, read-verified −17.0 °C** in a full 28-row agent eval
-    (`eval_20260803T234054Z.json`), and it is served on `/ask/agent` (Phase 2D, `ee4fc76`/`3d7efb5`).
+    (`eval_20260803T234054Z.json`), and it is served on `/ask/agent` (Phase 2D, `a1526b5`/`cab0e9e`).
     So the recorded NEGATIVE above holds only for the semantic_v2 **DIRECT** path (`/ask`, which still
     refuses at 0.036); via the router (`/ask/agent`) acetone recovers. Decomposition stays FALSIFIED as
     the IDLH lever — the two real levers were re-chunking (IDLH) and source-scoping (acetone).
@@ -113,7 +115,7 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
   scored gives graph 0.9615 vs v4 0.9683, Δ **−0.0068** — so ~55% of the headline −0.0151 was a
   denominator artifact (three v4=1.0 rows dropped from the graph mean only), and the residual −0.0068
   sits within the faithfulness noise floor. Reproduction holds cleanly. `graph.py` was NOT touched
-  in response to aggregate noise (5a already cleared plumbing). Producing code: commit `fec0958`
+  in response to aggregate noise (5a already cleared plumbing). Producing code: commit `baf9061`
   (the additive, default-preserving PIPELINE switch); default/unset `PIPELINE` still runs v4 byte-for-byte.
 - **METHODOLOGY — run-to-run variance & backend drift (applies to every row).** temp=0/seed=42 is
   deterministic at a FIXED backend fingerprint — a controlled probe (same `_llm()`, one prompt, 10×
@@ -189,13 +191,13 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     2–3×.
 - **v4 (dense k=10) — FINAL Phase-1 retrieval entry; one knob (`RETRIEVAL_K` 5→10), adopted as the
   shipped retrieval depth (the config default flip lands with the Step-5 service).** Query-time only;
-  semantic namespace, generation prompt, chunking and dataset all unchanged. Commit `5e742d2` (the
-  RETRIEVAL_K feature) is cited as the metric-producing code; the runs executed at HEAD `d6d66ed`
-  (= `5e742d2` + a docs-only pre-registration commit) — the same byte-identical pipeline `enrich`
+  semantic namespace, generation prompt, chunking and dataset all unchanged. Commit `4e31f08` (the
+  RETRIEVAL_K feature) is cited as the metric-producing code; the runs executed at HEAD `88f9c42`
+  (= `4e31f08` + a docs-only pre-registration commit) — the same byte-identical pipeline `enrich`
   stamps into the result files. The aggregates above are 2×-replicate means. All four runs shared
   generation fingerprint `fp_6cc92eaef9` except v4b, whose persisted `generation_backends` caught 1 of
   28 calls spending on `fp_f26e464023` — a real mid-run backend drift, exactly what the
-  persist-fingerprint fix (`46b47a9`) was built to surface. The replicates report the same primary
+  persist-fingerprint fix (`5d999e8`) was built to surface. The replicates report the same primary
   fingerprint (`fp_6cc92eaef9`) yet **13 of 28 responses still differ** between them — so the reported
   `system_fingerprint` does NOT pin generation across time-separated runs (it held only for the earlier
   tight back-to-back probe). The within-config aggregate spread (e.g. answer_correctness 0.604 vs 0.529
@@ -248,7 +250,7 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
       them against a cross-source / tabular query. The v4-era guess was that the fix would be **query
       decomposition** (per-source sub-lookups) or table-aware extraction, scoped to Phase 2 (agentic).
       **⟶ Phase-2 outcome (SUPERSEDES this guess): query decomposition was FALSIFIED as the IDLH lever**
-      (`eval/decomp_probe_RESULT.md`, pre-reg `cc01954`) — the diagnosed root cause was fat multi-record
+      (`eval/decomp_probe_RESULT.md`, pre-reg `e63bbc3`) — the diagnosed root cause was fat multi-record
       chunks, and the levers that actually worked were structure-aware re-chunking (IDLH; `semantic_v2`,
       shipped on `/ask`) and source-scoped retrieval (acetone; shipped on `/ask/agent`). See the
       semantic_v2 rows + notes above.
