@@ -69,7 +69,10 @@ refuses; changed rows moved up/held) · invariant COPY-integrity intact ✓ (0 c
 "invariant" rows moved UP via finer-NIOSH intrusion) · **all-5-within-±0.03 ✗ — failed ONLY because
 relevancy + recall IMPROVED beyond +0.03, not by any regression.** So the bar's letter fails on
 over-performance; its spirit (no regression, quality held-or-better) passes. Promotion is a judgment
-call for the reviewer, not an automatic disqualify. `semantic_v2` NOT promoted here.
+call for the reviewer, not an automatic disqualify. `semantic_v2` was NOT promoted *in this doc* — that
+was a separate later decision, and it WAS made: under the corrected asymmetric bar (`328c278`) semantic_v2
+was **PROMOTED** as the default `RETRIEVAL_NAMESPACE` (`77e1f50`), pinned in `render.yaml` (`5ac5419`). See
+BAR CORRECTION below for the corrected criterion this promotion was decided against.
 
 ## BAR CORRECTION (spec fix, recorded before the promotion decision)
 The pre-registered clause "all 5 metrics within ±0.03" was **mis-specified** — a symmetric band
