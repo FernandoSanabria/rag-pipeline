@@ -61,8 +61,23 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     the namespace variable (both arms, one backend), but NOT re-anchored to the canonical v4 row
     `fp_6cc92eaef9`, so its v4 numbers (0.9397/0.8351/0.7630/0.9375/0.5831) differ from the v4 row above;
     (b) faithfulness/recall deltas are over reduced n (19/20 after NaN/judge-timeout drops) while the
-    decisive precision −0.0186 is full n=28; (c) the raw scored JSON is gitignored
-    (`scripts/likeforlike_result.json`), so the durable committed artifact is the doc's table.
+    decisive precision −0.0186 is full n=28; (c) the raw scored JSON stays gitignored
+    (`scripts/likeforlike_result.json`) because it embeds verbatim Tier-2 vendor passages (the CLAUDE.md
+    provenance rule) — so a **metrics-only** per-row summary is committed at
+    `eval/likeforlike_perrow_metrics.json` (five scores per arm + per-row fingerprints, no answer/context
+    text), from which a reader can recompute the five Δ; (d) **the promotion criterion was AMENDED
+    post-hoc.** A bar *was* pre-registered before the run — symmetric, "all 5 metrics within ±0.03 on the
+    matched intersection" (`1f88b10`, 20:58, ahead of the 21:30 result) — and then amended: the matched
+    result (`e652a53`, 21:30) landed BEFORE the bar was corrected to asymmetric (`328c278`, 21:38), which
+    landed before the promotion (`77e1f50`, 21:46). The correction is right on the merits — under the
+    original symmetric ±0.03 the run would have FAILED, and only on two metrics that IMPROVED past the
+    band (`answer_relevancy` **+0.0351**, `context_recall` **+0.0458**); a gate that fails a change for
+    getting better is defective. `328c278`'s own commit message records the motive contemporaneously:
+    *"Forced by relevancy +0.035 and recall +0.046 (both improvements) → cannot be motivated reasoning;
+    would not have changed had they moved down. … Recorded before the promotion PR."* Still, amending a
+    criterion after seeing the result is weaker evidence than pre-registering the asymmetric form would
+    have been, even when the amendment is correct. Forward commitment: promotion bars are specified
+    asymmetrically (no regression beyond −X; improvements unbounded) from the outset.
   - **Cross-run numbers, disambiguated (same row, different runs — NOT a transcription error):** IDLH
     (row 8) correctness reads **0.362→0.667** in this note (Gate-2 drift run; `eval_20260802…` row-8 =
     0.6671) but **0.363→0.974** in the matched like-for-like (`eval/rechunk_2bc_likeforlike.md`), and

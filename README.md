@@ -146,7 +146,7 @@ To reproduce an earlier baseline, override the retrieval env vars — e.g. the v
 
 ## Reproducibility
 
-Each version regenerates by **checking out its commit and running the eval with the namespace/depth it used** — not by one command at `HEAD`, since the generation prompt and config differ per version. (`RETRIEVAL_K` is a v4-era knob; v1–v3 ran at the then-default k=5. Namespace is chosen by `CHUNKING_STRATEGY` at ingest and `RETRIEVAL_NAMESPACE` at eval.)
+Each version regenerates by **checking out its commit and running the eval with the namespace/depth it used** — not by one command at `HEAD`, since the generation prompt and config differ per version. (`RETRIEVAL_K` is a v4-era knob; v1–v3 ran at the then-default k=5. Namespace is chosen by `CHUNKING_STRATEGY` at ingest and `RETRIEVAL_NAMESPACE` at eval.) **One caveat to the "checkout + eval" rule:** v0–v4 regenerate from a checkout plus the eval command because their namespaces (`fixed_500_50`, `semantic`) are produced directly by `src/ingest.py`; the shipped **`semantic_v2`** row (and the **agent** row, which reads it) additionally require **building the namespace first** — it is a build-script artifact, not an `ingest.py` target (see the worked example below).
 
 | Version | Commit | Namespace | k | Result file (gitignored) |
 |---|---|---|--:|---|
@@ -159,11 +159,17 @@ Each version regenerates by **checking out its commit and running the eval with 
 | **semantic_v2** (shipped) | `7345619` build · `77e1f50` promote | `semantic_v2` | 10 | `eval_20260802T211136Z` |
 | agent (2C router) | `fb4eb6b` | `semantic_v2` | 10 | `eval_20260803T234054Z` |
 
-The **semantic_v2** row is the live namespace (promoted on a fingerprint-matched like-for-like, `e652a53` / [`eval/rechunk_2bc_likeforlike.md`](eval/rechunk_2bc_likeforlike.md); default in `src/config.py`, pinned in `render.yaml`). The **agent** row is the source-scoped router served on `/ask/agent` (`PIPELINE=agent`). Worked example — regenerate the shipped semantic_v2 numbers (or swap `semantic` for the v4 baseline):
+The **semantic_v2** row is the live namespace (promoted on a fingerprint-matched like-for-like, `e652a53` / [`eval/rechunk_2bc_likeforlike.md`](eval/rechunk_2bc_likeforlike.md); default in `src/config.py`, pinned in `render.yaml`). The **agent** row is the source-scoped router served on `/ask/agent` (`PIPELINE=agent`). Worked example — **build** `semantic_v2`, then evaluate over it:
 
 ```bash
+# 1) BUILD the namespace — ingest `semantic`, then copy 17 docs byte-identical + re-chunk the 2 targets
+RETRIEVAL_NAMESPACE=semantic CHUNKING_STRATEGY=semantic uv run python src/ingest.py
+uv run python scripts/build_semantic_v2.py          # -> semantic_v2: 886 copied + 870 re-chunked = 1,756 vectors
+# 2) EVALUATE the shipped pipeline over it (the eval command alone only regenerates the scores; it assumes the namespace already exists)
 RETRIEVAL_NAMESPACE=semantic_v2 RETRIEVAL_K=10 uv run python eval/run_eval.py
 ```
+
+`semantic_v2` is a **build-script artifact**, not a direct `ingest.py` target. And note the wall: an outside reader cannot even complete step 1 — the Tier-2 vendor PDFs are gitignored, so a fresh clone has no corpus to ingest (see **"Full reproduction needs your own resources"** below). Documenting the build path is not the same as its being walkable from a clean checkout; it is not.
 
 Three honest caveats:
 
