@@ -212,17 +212,54 @@ class CountingEmbeddings:
         return self.inner.embed_query(text)
 
 
+def _assert_ingest_target_intended(strategy: str, environ) -> str:
+    """Refuse to ingest unless the operator EXPLICITLY chose a namespace that matches this run's write
+    target — a loud, pre-network guard against a silent footgun. `CHUNKING_STRATEGY` picks the namespace
+    ingest WRITES, while retrieval READS `RETRIEVAL_NAMESPACE` (which defaults to the shipped
+    `semantic_v2`), so a bare defaults-only run would populate a namespace nothing reads.
+
+    Intent, not value: require `RETRIEVAL_NAMESPACE` to be PRESENT IN THE ENVIRONMENT (not merely at its
+    default) AND equal to the target. So `RETRIEVAL_NAMESPACE=fixed_500_50 … ingest.py` passes while a
+    bare `ingest.py` fails — which keeps the documented v1 baseline command working. Returns the
+    resolved namespace; raises SystemExit (non-zero) otherwise. No `--force` escape hatch by design.
+    Pure and side-effect-free so it is unit-testable without any network call."""
+    if strategy not in NAMESPACE_BY_STRATEGY:
+        raise SystemExit(
+            f"Unknown CHUNKING_STRATEGY={strategy!r}; expected one of {sorted(NAMESPACE_BY_STRATEGY)}. "
+            "Note: 'semantic_v2' is NOT an ingest strategy — it is built by scripts/build_semantic_v2.py "
+            "from a 'semantic' ingest (see the incantations below)."
+        )
+    target = NAMESPACE_BY_STRATEGY[strategy]
+    rn = environ.get("RETRIEVAL_NAMESPACE")
+    if rn == target:
+        return target
+    state = "not set (still at its default)" if rn is None else f"set to {rn!r}, which ≠ {target!r}"
+    raise SystemExit(
+        f"Refusing to ingest: CHUNKING_STRATEGY={strategy!r} would WRITE the {target!r} namespace, but "
+        f"RETRIEVAL_NAMESPACE is {state}.\n"
+        "Ingest writes a namespace; the pipeline reads whatever RETRIEVAL_NAMESPACE points at — an "
+        "unguarded run would populate a namespace nothing reads. Set them to match, explicitly:\n"
+        "  • fixed_500_50 baseline:  RETRIEVAL_NAMESPACE=fixed_500_50 uv run python src/ingest.py\n"
+        "  • semantic baseline:      RETRIEVAL_NAMESPACE=semantic CHUNKING_STRATEGY=semantic uv run python src/ingest.py\n"
+        "  • semantic_v2 (the SHIPPED default) CANNOT be produced by ingest.py — it is a build-script\n"
+        "    artifact: run the 'semantic' ingest above, then\n"
+        "        uv run python scripts/build_semantic_v2.py\n"
+        "    (copies the 17 untouched docs byte-identical + re-chunks the 2 targets)."
+    )
+
+
 def main() -> None:
+    # Loud, pre-network guard FIRST — before the heavy imports and any Pinecone/OpenAI call — so a
+    # namespace mismatch (or a bare defaults-only run) fails instantly and spends nothing.
+    namespace = _assert_ingest_target_intended(STRATEGY, os.environ)
+
     import tiktoken
     from langchain_openai import OpenAIEmbeddings
     from pinecone import Pinecone
 
     from src.config import get_settings
 
-    if STRATEGY not in NAMESPACE_BY_STRATEGY:
-        raise SystemExit(f"Unknown CHUNKING_STRATEGY={STRATEGY!r}; expected one of {list(NAMESPACE_BY_STRATEGY)}")
-    namespace = NAMESPACE_BY_STRATEGY[STRATEGY]
-    print(f"Strategy: {STRATEGY}  ->  namespace: {namespace}")
+    print(f"Strategy: {STRATEGY}  ->  namespace: {namespace}  (RETRIEVAL_NAMESPACE explicitly matches)")
 
     settings = get_settings()
     pc = Pinecone(api_key=settings.pinecone_api_key)
