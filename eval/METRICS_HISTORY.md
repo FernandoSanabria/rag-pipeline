@@ -62,10 +62,12 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     `fp_6cc92eaef9`, so its v4 numbers (0.9397/0.8351/0.7630/0.9375/0.5831) differ from the v4 row above;
     (b) faithfulness/recall deltas are over reduced n (19/20 after NaN/judge-timeout drops) while the
     decisive precision −0.0186 is full n=28; (c) the raw scored JSON stays gitignored
-    (`scripts/likeforlike_result.json`) because it embeds verbatim Tier-2 vendor passages (the CLAUDE.md
-    provenance rule) — so a **metrics-only** per-row summary is committed at
+    (`scripts/likeforlike_result.json`) **purely for licensing — not because the numbers are
+    unverifiable**: it embeds verbatim Tier-2 vendor passages (the CLAUDE.md provenance rule). The
+    durable, checkable artifact is instead the committed **metrics-only** per-row summary
     `eval/likeforlike_perrow_metrics.json` (five scores per arm + per-row fingerprints, no answer/context
-    text), from which a reader can recompute the five Δ; (d) **the promotion criterion was AMENDED
+    text); **this row's aggregate table is a rendering of that file**, and a reader recomputes the five Δ
+    from it directly (its header states the aggregation rule); (d) **the promotion criterion was AMENDED
     post-hoc.** A bar *was* pre-registered before the run — symmetric, "all 5 metrics within ±0.03 on the
     matched intersection" (`1f88b10`, 20:58, ahead of the 21:30 result) — and then amended: the matched
     result (`e652a53`, 21:30) landed BEFORE the bar was corrected to asymmetric (`328c278`, 21:38), which
