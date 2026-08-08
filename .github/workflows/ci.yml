@@ -13,6 +13,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history — the citation guard resolves cited commit hashes
+
+      - name: Verify doc citations resolve (no dead commit hashes)
+        run: python3 scripts/check_doc_citations.py
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
