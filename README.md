@@ -151,16 +151,16 @@ Each version regenerates by **checking out its commit and running the eval with 
 
 | Version | Commit | Namespace | k | Result file (gitignored) |
 |---|---|---|--:|---|
-| v0 | `9fd0dc7` | — | — | `baseline_v0_*` |
-| v1 | `a76f09a` | `fixed_500_50` | 5 | `v1_fixed_500_50_*` |
-| v2 | `87ae545` | `semantic` | 5 | `v2_semantic_*` |
-| v3 | `6b416ed` | `semantic` | 5 | `v3_prompt_*` |
-| v4 (Phase-1 final) | `5e742d2` | `semantic` | 10 | `v4_densek10_*` |
-| graph-v4 (2A) | `fec0958` | `semantic` | 10 | `graph_v4_agent_20260723T221534Z` |
-| **semantic_v2** (shipped) | `7345619` build · `77e1f50` promote | `semantic_v2` | 10 | `eval_20260802T211136Z` |
-| agent (2C router) | `fb4eb6b` | `semantic_v2` | 10 | `eval_20260803T234054Z` |
+| v0 | `549b283` | — | — | `baseline_v0_*` |
+| v1 | `2d8c903` | `fixed_500_50` | 5 | `v1_fixed_500_50_*` |
+| v2 | `37cf509` | `semantic` | 5 | `v2_semantic_*` |
+| v3 | `418a7e3` | `semantic` | 5 | `v3_prompt_*` |
+| v4 (Phase-1 final) | `4e31f08` | `semantic` | 10 | `v4_densek10_*` |
+| graph-v4 (2A) | `baf9061` | `semantic` | 10 | `graph_v4_agent_20260723T221534Z` |
+| **semantic_v2** (shipped) | `6040ce3` build · `8205164` promote | `semantic_v2` | 10 | `eval_20260802T211136Z` |
+| agent (2C router) | `088d5c2` | `semantic_v2` | 10 | `eval_20260803T234054Z` |
 
-The **semantic_v2** row is the live namespace (promoted on a fingerprint-matched like-for-like, `e652a53` / [`eval/rechunk_2bc_likeforlike.md`](eval/rechunk_2bc_likeforlike.md); default in `src/config.py`, pinned in `render.yaml`). The **agent** row is the source-scoped router served on `/ask/agent` (`PIPELINE=agent`). Worked example — **build** `semantic_v2`, then evaluate over it:
+The **semantic_v2** row is the live namespace (promoted on a fingerprint-matched like-for-like, `529528e` / [`eval/rechunk_2bc_likeforlike.md`](eval/rechunk_2bc_likeforlike.md); default in `src/config.py`, pinned in `render.yaml`). The **agent** row is the source-scoped router served on `/ask/agent` (`PIPELINE=agent`). Worked example — **build** `semantic_v2`, then evaluate over it:
 
 ```bash
 # 1) BUILD the namespace — ingest `semantic`, then copy 17 docs byte-identical + re-chunk the 2 targets

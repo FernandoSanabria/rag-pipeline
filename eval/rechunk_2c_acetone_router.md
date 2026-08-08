@@ -58,7 +58,7 @@ Additive `dense_search(source_doc_id=None)`; router + source-scoped path in `age
 stubbed-LLM router tests incl. the IDLH-direct pin + filtered-dict-shape test. Full-eval gate reads
 acetone −17 °C by artifact, not delta; intersection rule. Do NOT promote.
 
-## RESULT — acetone RECOVERED (build `fb4eb6b`; eval PIPELINE=agent, `semantic_v2`, `fp_c881474fd1`)
+## RESULT — acetone RECOVERED (build `088d5c2`; eval PIPELINE=agent, `semantic_v2`, `fp_c881474fd1`)
 The eval fingerprint `fp_c881474fd1` == the Gate-2 semantic_v2 baseline → a fingerprint-matched
 comparison. Real-router scope over 28 rows: scopes EXACTLY rows 21/22/23/24 ("per the X SDS");
 IDLH (8), MOC (12), and every comparison route DIRECT. (The prompt was narrowed after a real-router
@@ -79,6 +79,6 @@ check first over-scoped the general MOC question — the pre-eval check is the p
 **As of this 2C record the router was demonstrated in eval only** (`PIPELINE=agent`): `/ask` served
 `src.pipeline.ask` (v4 direct path, `semantic_v2`), the router was not on the live wire, and 2C acetone
 recovery was DEMONSTRATED, not yet DEPLOYED. **Update — it shipped in Phase 2D:** `POST /ask/agent` now
-serves the router (`ee4fc76` / `3d7efb5`, merged), so acetone recovery is live on the wire via the agent
+serves the router (`a1526b5` / `cab0e9e`, merged), so acetone recovery is live on the wire via the agent
 endpoint, while `/ask` continues to serve the 2B IDLH win on `semantic_v2`. (The 2C-scope framing above
 is preserved as the record of what was true when this result was written.)

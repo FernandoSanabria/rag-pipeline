@@ -1,6 +1,6 @@
 # Step 8 — decomposition falsification probe: RESULT (outcome of the pre-registration)
 
-Pre-registration: `scripts/decomp_probe_PREDICTION.md` @ commit `cc01954` (committed before the
+Pre-registration: `scripts/decomp_probe_PREDICTION.md` @ commit `e63bbc3` (committed before the
 probe ran). This file is the committed OUTCOME — a pre-registered prediction with no recorded
 result is only half a receipt.
 
