@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BASE: https://equip-docs-rag-api.onrender.com
-      INITIAL_DELAY: "120"     # wait for Render to swap in the new image before polling (tune to a measured deploy)
+      INITIAL_DELAY: "90"      # wait for Render to swap in the new image before polling (measured deploy ~52s + margin)
       BUDGET_SECS: "600"       # per-route poll budget (~10 min): covers a cold build + free-tier wake
       INTERVAL: "15"
       HARD_STREAK: "3"         # a 404/500 must repeat this many times (~45s) before we fail — straggler-deploy guard
@@ -93,12 +93,19 @@ jobs:
           echo "== GET /health -> 200 =="
           poll GET /health '' '' || exit 1
 
-          echo "== negative self-test: a bogus route MUST hard-fail (proves the intolerant half is wired, not swallowed) =="
-          if ( poll POST /ask/definitely-not-a-route '{"question":"x"}' '' 90 ); then
-            echo "::error::negative self-test: a route that should 404 passed the smoke — the intolerant half is broken"
+          # Negative self-test: prove the intolerant half is real — a bogus route must be seen as 404 and
+          # classified `hard`. Direct assertion (not via poll) so a *passing* run stays annotation-clean;
+          # runs after /health is 200, so the service is up and the bogus route reliably 404s.
+          echo "== negative self-test: a bogus route MUST classify as a hard failure =="
+          nt="$(hit POST /ask/definitely-not-a-route '{"question":"x"}')"
+          nt_code="$(printf '%s' "$nt" | tail -n1)"
+          echo "  POST /ask/definitely-not-a-route -> HTTP $nt_code (classify: $(classify "$nt_code"))"
+          if [ "$nt_code" = "404" ] && [ "$(classify "$nt_code")" = "hard" ]; then
+            echo "  OK: 404 is classified 'hard' — the intolerant half fails rather than retries or swallows"
+          else
+            echo "::error::negative self-test failed: bogus route returned $nt_code (classify $(classify "$nt_code")), expected 404/hard"
             exit 1
           fi
-          echo "  OK: the bogus route hard-failed as required"
 
           echo '== POST /ask -> 200 + has(answer, citations) =='
           poll POST /ask '{"question":"What is the RMP threshold quantity for anhydrous ammonia?"}' 'has("answer") and has("citations")' || exit 1
