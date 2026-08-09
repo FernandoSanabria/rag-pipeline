@@ -106,14 +106,18 @@ jobs:
           if [ "${SIMULATE_FAILURE:-false}" = "true" ]; then
             export ERR_PREFIX="SIMULATED — "
             echo "== SIMULATED FAILURE (negative proof) — this run is INTENTIONALLY red =="
+            # NOTE: GitHub's `shell: bash` runs with -e (errexit). Capture the subshell's exit via
+            # `|| rc=$?` — a bare `( poll ... ); rc=$?` would let -e kill the script the instant poll
+            # correctly returns non-zero, before we assert. (The first proof run caught exactly this bug:
+            # the persistent-hard path never executed. The proof proving itself, on its own harness.)
 
             echo "-- shape-failure path: GET /health returns 200 but the body fails the jq shape --"
-            ( poll GET /health '' 'has("definitely_not_a_field")' 30 ); rc=$?
+            rc=0; ( poll GET /health '' 'has("definitely_not_a_field")' 90 ) || rc=$?
             [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — shape-check branch returned 0 on an unsatisfiable shape; the shape path does not fail"; exit 1; }
             echo "  shape path returned non-zero as required (rc=$rc)"
 
             echo "-- persistent-hard path: a route that cannot exist; budget 90s > streak window 45s so it fails on the hard branch --"
-            ( poll POST /ask/definitely-not-a-route '{"question":"x"}' '' 90 ); rc=$?
+            rc=0; ( poll POST /ask/definitely-not-a-route '{"question":"x"}' '' 90 ) || rc=$?
             [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — persistent-hard branch returned 0 on a permanent 404; the hard path does not fail"; exit 1; }
             echo "  persistent-hard path returned non-zero as required (rc=$rc)"
 
