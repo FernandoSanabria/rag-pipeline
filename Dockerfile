@@ -24,6 +24,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 # agent/ is the LangGraph orchestration layer wrapped by the /ask/agent endpoint — it MUST be copied
 # (the image uses PYTHONPATH + --no-install-project, so each top-level package needs an explicit COPY;
 # the pyproject wheel `packages` list does NOT apply here). Omitting it crashes uvicorn on startup.
+# A post-deploy wire-smoke hits /ask/agent on the live service after each deploy, so a regression here
+# fails loudly instead of the platform silently serving the last healthy image.
 COPY src/ ./src/
 COPY api/ ./api/
 COPY agent/ ./agent/
