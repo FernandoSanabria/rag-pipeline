@@ -1,0 +1,109 @@
+name: post-deploy-wire-smoke
+
+# Post-deploy wire-smoke: after a code deploy to `main`, verify the DEPLOYED artifact actually serves the
+# routes. This is the layer-six check — CI validates the code; this validates that the image contains it.
+# The bug it exists to catch: a missing `COPY` crashes the new image on startup, Render keeps the last
+# healthy image, and the new route 404s. Tests can't see that (they run against the repo); only a request
+# against the running service can.
+#
+# Tolerant of cold starts and deploy-in-progress (retry on 000/502/503/timeout); intolerant of 404/500,
+# the signature of "the image doesn't contain the code" — but a hard code must PERSIST (rule out a
+# straggler deploy still serving the old image) before we fail. Post-merge only: it runs after the merge
+# that triggers it and therefore cannot gate that merge, so it is deliberately NOT a required check.
+
+on:
+  push:
+    branches: [main]
+    paths:                    # only fire on changes that can alter the deployed artifact
+      - "src/**"
+      - "api/**"
+      - "agent/**"
+      - "Dockerfile"
+      - "render.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch: {}        # manual runs (smoke-tests the assertions; does NOT exercise the deploy-wait path)
+
+jobs:
+  wire-smoke:
+    name: wire-smoke
+    runs-on: ubuntu-latest
+    env:
+      BASE: https://equip-docs-rag-api.onrender.com
+      INITIAL_DELAY: "120"     # wait for Render to swap in the new image before polling (tune to a measured deploy)
+      BUDGET_SECS: "600"       # per-route poll budget (~10 min): covers a cold build + free-tier wake
+      INTERVAL: "15"
+      HARD_STREAK: "3"         # a 404/500 must repeat this many times (~45s) before we fail — straggler-deploy guard
+    steps:
+      - name: Wire-smoke the deployed service (shape, not content)
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Map an HTTP code to an action. 200=ok; 404/500=hard (the bug); everything else (000 timeout/
+          # conn, 502, 503) = retry (cold start or deploy in progress).
+          classify() { case "$1" in 200) echo ok;; 404|500) echo hard;; *) echo retry;; esac; }
+
+          # hit METHOD PATH [JSON] -> prints the body, then a final line with the HTTP status code.
+          hit() {
+            local m="$1" p="$2" d="${3:-}"
+            if [ "$m" = GET ]; then
+              curl -s -m 90 -w $'\n%{http_code}' "$BASE$p" 2>/dev/null || printf '\n000'
+            else
+              curl -s -m 90 -X POST -H 'content-type: application/json' -d "$d" -w $'\n%{http_code}' "$BASE$p" 2>/dev/null || printf '\n000'
+            fi
+          }
+
+          # poll METHOD PATH JSON SHAPE [BUDGET] -> 0 on 200+shape; 1 when a hard code persists or budget expires.
+          # SHAPE is a jq filter that must be truthy (empty = 200 is enough).
+          poll() {
+            local m="$1" p="$2" d="$3" shape="$4" budget="${5:-$BUDGET_SECS}"
+            local deadline=$(( $(date +%s) + budget )) streak=0
+            while :; do
+              local out code body kind
+              out="$(hit "$m" "$p" "$d")"
+              code="$(printf '%s' "$out" | tail -n1)"
+              body="$(printf '%s' "$out" | sed '$d')"
+              kind="$(classify "$code")"
+              echo "  $m $p -> HTTP $code ($kind)"
+              case "$kind" in
+                ok)
+                  if [ -z "$shape" ] || printf '%s' "$body" | jq -e "$shape" >/dev/null 2>&1; then return 0; fi
+                  echo "  ::error::200 but shape check failed ($shape)"; return 1 ;;
+                hard)
+                  streak=$(( streak + 1 ))
+                  if [ "$streak" -ge "$HARD_STREAK" ]; then
+                    echo "  ::error::$m $p returned $code on $streak consecutive checks — the deployed image does not serve this route"
+                    return 1
+                  fi
+                  echo "  hard $code ($streak/$HARD_STREAK) — re-checking to rule out a straggler deploy" ;;
+                retry)
+                  streak=0 ;;
+              esac
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "  ::error::$m $p did not reach 200+shape within ${budget}s"; return 1
+              fi
+              sleep "$INTERVAL"
+            done
+          }
+
+          echo "== initial delay ${INITIAL_DELAY}s: let the newly-deployed image become the one serving =="
+          sleep "$INITIAL_DELAY"
+
+          echo "== GET /health -> 200 =="
+          poll GET /health '' '' || exit 1
+
+          echo "== negative self-test: a bogus route MUST hard-fail (proves the intolerant half is wired, not swallowed) =="
+          if ( poll POST /ask/definitely-not-a-route '{"question":"x"}' '' 90 ); then
+            echo "::error::negative self-test: a route that should 404 passed the smoke — the intolerant half is broken"
+            exit 1
+          fi
+          echo "  OK: the bogus route hard-failed as required"
+
+          echo '== POST /ask -> 200 + has(answer, citations) =='
+          poll POST /ask '{"question":"What is the RMP threshold quantity for anhydrous ammonia?"}' 'has("answer") and has("citations")' || exit 1
+
+          echo '== POST /ask/agent -> 200 + has(answer, route) =='
+          poll POST /ask/agent '{"question":"flash point of acetone per the Sigma-Aldrich SDS?"}' 'has("answer") and has("route")' || exit 1
+
+          echo "All routes green: the deployed artifact serves /health, /ask, and /ask/agent."
