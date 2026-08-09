@@ -1,4 +1,5 @@
 name: post-deploy-wire-smoke
+run-name: ${{ github.event.inputs.simulate_failure == 'true' && 'post-deploy-wire-smoke — SIMULATED FAILURE (intentional red, negative proof)' || 'post-deploy-wire-smoke' }}
 
 # Post-deploy wire-smoke: after a code deploy to `main`, verify the DEPLOYED artifact actually serves the
 # routes. This is the layer-six check — CI validates the code; this validates that the image contains it.
@@ -10,6 +11,12 @@ name: post-deploy-wire-smoke
 # the signature of "the image doesn't contain the code" — but a hard code must PERSIST (rule out a
 # straggler deploy still serving the old image) before we fail. Post-merge only: it runs after the merge
 # that triggers it and therefore cannot gate that merge, so it is deliberately NOT a required check.
+#
+# NEGATIVE PROOF: a deliberate `workflow_dispatch` run with `simulate_failure: true` exists in this
+# workflow's Actions history (first run ~2026-08-09), intentionally red-by-design. It asserts the two
+# intolerant paths (persistent-hard 404/500 and shape-mismatch) genuinely fail the job rather than being
+# swallowed by the retry logic. That red entry is evidence for the discipline, not a broken pipeline — the
+# run is named "SIMULATED FAILURE" and its ::error:: lines are prefixed "SIMULATED —".
 
 on:
   push:
@@ -22,7 +29,12 @@ on:
       - "render.yaml"
       - "pyproject.toml"
       - "uv.lock"
-  workflow_dispatch: {}        # manual runs (smoke-tests the assertions; does NOT exercise the deploy-wait path)
+  workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: "Dispatch-only NEGATIVE PROOF — assert the intolerant paths fail the job (intentionally red). Leave false for a normal smoke."
+        type: boolean
+        default: false
 
 jobs:
   wire-smoke:
@@ -30,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BASE: https://equip-docs-rag-api.onrender.com
+      SIMULATE_FAILURE: ${{ github.event.inputs.simulate_failure || 'false' }}
       INITIAL_DELAY: "90"      # wait for Render to swap in the new image before polling (measured deploy ~52s + margin)
       BUDGET_SECS: "600"       # per-route poll budget (~10 min): covers a cold build + free-tier wake
       INTERVAL: "15"
@@ -55,7 +68,8 @@ jobs:
           }
 
           # poll METHOD PATH JSON SHAPE [BUDGET] -> 0 on 200+shape; 1 when a hard code persists or budget expires.
-          # SHAPE is a jq filter that must be truthy (empty = 200 is enough).
+          # SHAPE is a jq filter that must be truthy (empty = 200 is enough). ${ERR_PREFIX:-} lets the negative
+          # proof label its ::error:: as SIMULATED without poll needing to know it's a simulation.
           poll() {
             local m="$1" p="$2" d="$3" shape="$4" budget="${5:-$BUDGET_SECS}"
             local deadline=$(( $(date +%s) + budget )) streak=0
@@ -69,11 +83,11 @@ jobs:
               case "$kind" in
                 ok)
                   if [ -z "$shape" ] || printf '%s' "$body" | jq -e "$shape" >/dev/null 2>&1; then return 0; fi
-                  echo "  ::error::200 but shape check failed ($shape)"; return 1 ;;
+                  echo "  ::error::${ERR_PREFIX:-}200 but shape check failed ($shape)"; return 1 ;;
                 hard)
                   streak=$(( streak + 1 ))
                   if [ "$streak" -ge "$HARD_STREAK" ]; then
-                    echo "  ::error::$m $p returned $code on $streak consecutive checks — the deployed image does not serve this route"
+                    echo "  ::error::${ERR_PREFIX:-}$m $p returned $code on $streak consecutive checks — the deployed image does not serve this route"
                     return 1
                   fi
                   echo "  hard $code ($streak/$HARD_STREAK) — re-checking to rule out a straggler deploy" ;;
@@ -81,12 +95,35 @@ jobs:
                   streak=0 ;;
               esac
               if [ "$(date +%s)" -ge "$deadline" ]; then
-                echo "  ::error::$m $p did not reach 200+shape within ${budget}s"; return 1
+                echo "  ::error::${ERR_PREFIX:-}$m $p did not reach 200+shape within ${budget}s"; return 1
               fi
               sleep "$INTERVAL"
             done
           }
 
+          # --- NEGATIVE PROOF (dispatch-only): assert BOTH intolerant paths fail the job, then red on purpose.
+          # Real deploys never reach this (simulate_failure defaults false). Runs before the initial delay.
+          if [ "${SIMULATE_FAILURE:-false}" = "true" ]; then
+            export ERR_PREFIX="SIMULATED — "
+            echo "== SIMULATED FAILURE (negative proof) — this run is INTENTIONALLY red =="
+
+            echo "-- shape-failure path: GET /health returns 200 but the body fails the jq shape --"
+            ( poll GET /health '' 'has("definitely_not_a_field")' 30 ); rc=$?
+            [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — shape-check branch returned 0 on an unsatisfiable shape; the shape path does not fail"; exit 1; }
+            echo "  shape path returned non-zero as required (rc=$rc)"
+
+            echo "-- persistent-hard path: a route that cannot exist; budget 90s > streak window 45s so it fails on the hard branch --"
+            ( poll POST /ask/definitely-not-a-route '{"question":"x"}' '' 90 ); rc=$?
+            [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — persistent-hard branch returned 0 on a permanent 404; the hard path does not fail"; exit 1; }
+            echo "  persistent-hard path returned non-zero as required (rc=$rc)"
+
+            echo "::error::SIMULATED FAILURE (negative proof): both intolerant paths went red as required; failing the job intentionally"
+            exit 1
+          fi
+
+          # Straggler-deploy risk (noted, not tuned): INITIAL_DELAY 90s + streak window (HARD_STREAK*INTERVAL=45s)
+          # ~= 135s tolerance vs a measured ~52s deploy. A uv.lock/pyproject.toml build that ALSO adds a new route
+          # in the same push could 404 past that window and false-red. Rare; raise INITIAL_DELAY if it ever fires.
           echo "== initial delay ${INITIAL_DELAY}s: let the newly-deployed image become the one serving =="
           sleep "$INITIAL_DELAY"
 
