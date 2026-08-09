@@ -1,0 +1,59 @@
+# How not to fool yourself: seven disciplines for trusting your own results
+
+Over the last two pieces I chased two bugs through a RAG pipeline — *retrieval-augmented generation*: answer a question by retrieving the most relevant passages from a document corpus, then having an LLM answer only from them — [diagnosing them](falsification-and-diagnosis.md), then [fixing and shipping the fix](article-b-shipping-the-fix.md). (The whole build is [the first piece](evaluation-first-rag.md); [what it all cost](the-cost-of-rigor.md) is a companion.) This one isn't a third bug. It's the method underneath the first two: the handful of disciplines that did the actual work, written down as something you can run on purpose instead of recognize in hindsight.
+
+There's a line those pieces kept returning to — *the metric triages; the artifact arbitrates.* Your instruments — a score, a green check mark, a matcher's verdict — are good at telling you *where to look* and bad at telling you *what's true*; the raw thing underneath, the retrieved chunk or the generated answer or the wire response, is the only arbiter. That's the spine. What follows are seven concrete actions that make it operational — and because a method that lists only benefits is the exact confident-instrument-with-no-artifact this whole series warns about, each one leads with what it *costs*, not what it buys. The worked examples all come from the last two pieces and are linked; the costs are the part you can't get there.
+
+## 1. Pre-register the prediction, before the run
+
+Write down what you expect — falsifiably, specifically — and commit it to a file *before* you run the thing that tests it; recorded *after* the result, a prediction is a rationalization you can always dress up as foresight. **The cost is discomfort, and the discomfort is the point:** you're committing a bet you might lose somewhere you can't quietly edit later, so spend it on the changes that are expensive or hard to undo. (In the diagnosis piece, my prediction for the IDLH — immediately dangerous to life or health — lookup went into a committed [`decomp_probe_PREDICTION.md`](../scripts/decomp_probe_PREDICTION.md), timestamped before the [probe that killed it](../eval/decomp_probe_RESULT.md) existed.)
+
+## 2. Falsify cheap before you build
+
+Before you build the machine, ask the cheapest question that could kill the idea. **The cost is that a good probe takes real thought to design, and — see discipline 5 — it can itself be wrong, so its verdict is a lead, not a proof;** pay that price *before* any lever that carries real build cost, not after. (Testing whether decomposition could work took a handful of read-only retrieval calls instead of the router, graph, and evaluation run I'd otherwise have spent a day building — and the premise failed at that price.)
+
+## 3. Validate the transform at corpus scale, before you run it
+
+When your fix is a *transformation* — a new chunker, a regex, a migration — test it across the whole corpus, not just the one or two documents that motivated it. **This is the one discipline here about *blast radius* rather than truth, which is exactly why it's the easiest to skip — and skipping it is the difference between breaking the documents you were watching and breaking the ones you weren't;** scale-testing is slower than tuning on your target, and that's the price of the guarantee. (My SDS section-splitter matched Sigma-Aldrich 16 of 16 and looked finished; across the other vendors it scored 1, 0, and 0 of 16, so I scoped it to the one document it provably handled instead of silently shredding three I wasn't looking at.)
+
+## 4. Isolate the variable — control by construction
+
+Make your control group identical by *construction*, not by hope, so "did I disturb anything else?" has an answer built into the setup rather than one you eyeball afterward and pray about. **The cost is that construction-grade controls take more setup than "just run it and diff the output" — and they pay for themselves the first time a confound would otherwise have fooled you.** (I copied the 17 untouched documents' vectors — their embeddings — byte-identical and re-chunked only the 2 targets; and I pinned old and new runs to the same generation fingerprint — `system_fingerprint`, OpenAI's id for the exact backend serving each call, which drifts run to run — before comparing, because otherwise I'd be measuring the weather and calling it my change.)
+
+## 5. Read the raw artifact, on the rows that matter
+
+Every automated verdict is a lead, not a conclusion, so read the raw thing itself. **The cost is that reading artifacts does not scale — a real limit, handled squarely in the costs below — and it is never a license to skip the read on the rows that decide something.** (The diagnosis probe's matcher reported a hit at rank 7; I read the chunk and found a "Combustible Solid" entry, not the ammonia I was hunting. And the correctness judge — itself an LLM scoring the answer, so not deterministic — scored a byte-identical response 0.91 one run and 0.66 the next: the number moved while the text sat perfectly still. When the aggregate and the artifact disagree, the artifact wins.) Here a "row" is one of the 28 hand-written eval questions — small enough that reading them is the point, not the exception.
+
+## 6. Verify at the layer the claim is made
+
+A passing check at one layer certifies nothing about the layer above it, so verify where the claim actually lives: an eval claim needs an eval read; a production claim needs a request against the live URL. **The cost is more verification surface to build and maintain — and the payoff is catching the entire class of bug that is invisible from exactly one layer down.** (My test suite was green and CI even built the container image, yet the new endpoint returned 404 in production — because the Dockerfile never copied the new package and nothing had exercised the *running service*. Tests certify your code; they do not certify that the artifact you deployed contains it.)
+
+## 7. Fix a broken instrument in the open — and prove the fix isn't self-serving
+
+When your own measuring tool turns out to be wrong, correct it publicly, and show the correction couldn't have been steered toward the answer you wanted. **The cost is the honesty tax:** you have to publish that your own gate was mis-specified, and the proof-that-it-isn't-self-serving is mandatory, not decoration — without it, "I fixed my metric" is indistinguishable from moving the goalposts. (My promotion gate was a symmetric ±0.03 band that would have blocked a ship because two metrics improved *too much*; the asymmetric fix can't be motivated reasoning, because it was forced by metrics moving **up** — had they moved down, it would have changed nothing.)
+
+## Making it survive a team
+
+Every discipline above is written in the first person — what *I* commit, what *I* read — and that's the version that doesn't survive contact with four other people who don't share the habit. The move that does survive is to convert each one into something that **fails the build without anyone choosing to run it.** I've converted three of the seven into exactly that, and I'd point to them as the model. A doc-citation check fails CI on a commit hash no longer resolving — the discipline ("cite real evidence") turned into a guard nobody can forget. Fingerprint persistence is a quieter one — every result now records its generation backend by construction, so a cross-fingerprint comparison can't silently pass. And a route-level post-deploy wire-smoke now **fails the build** when the live `/ask/agent` stops serving the route — the deploy-layer lesson from the last piece, made mechanical, and one I trust only because I made it fail on purpose before I trusted it.
+
+The rest are still mine alone, and I'll say which and how I'd convert them: pre-registration becomes a required PR-template field, not a personal ritual; corpus-scale validation becomes a CI check, not a thing I remembered to run; the artifact read becomes a review requirement, so approving a change means someone actually looked at the rows. One is already scoped — a relative-link check for the docs — and until it lands it's honesty, not enforcement. The goal isn't more discipline; it's less reliance on it: a habit you have to remember is one a teammate can skip, and a check that fails loudly is one nobody has to.
+
+## What this costs, and where it breaks
+
+Plainly, because a benefits-only method piece is the thing this series exists to distrust:
+
+**It's slow.** All seven disciplines trade speed for trust, and that trade is only worth making when being wrong is expensive. This was a 28-row evaluation over industrial-safety documents, where a confidently wrong answer is a genuine hazard. On a throwaway prototype where a mistake costs a shrug, most of this is over-engineering — skip it on purpose, and know that you're doing so.
+
+**Reading artifacts doesn't scale.** You cannot hand-read ten thousand rows. The honest version of discipline 5 is: read every row the metric flags, *and* a random sample of the rows it doesn't — because the sample is the only thing that catches the failures your metric is blind to, and those are the ones that hurt.
+
+**And the sharpest failure is the one you're most likely to actually hit: the whole method can be performed as theater and produce a very rigorous-*looking* wrong answer.** Pre-registering a prediction and then quietly ignoring it once it's inconvenient. "Reading the artifact" — but only the rows the metric already flagged, which is confirmation bias with extra steps. Running the rituals without the substance buys *false* confidence, which is worse than no confidence, because you will defend it. These disciplines are necessary, not sufficient. The test of whether you're doing them for real is simple and unforgiving: **has anything of yours ever actually died this way?** In this project, decomposition did — pre-registered, wanted, and killed on the record. If nothing you commit to ever dies like that, you're performing the forms, not running the method.
+
+There's a sharper version of this that I earned on this very series, after all five pieces were drafted. The post-deploy wire-smoke I just called a converted guard is only worth anything if it can actually go red — so, rather than trust an instrument I'd never watched fail, I made it fail on purpose. The first run went red exactly as designed, and it proved nothing: the script had tripped `bash -e` and died on the wrong line, so the branch it existed to exercise never ran. A ritual performed flawlessly — a red run where I wanted a red run — bought nothing but false confidence, and the only thing that caught it was reading the raw log instead of the green-or-red the job reported. The instrument I'd built specifically to keep myself honest had faked its own verification; I nearly shipped this very piece calling it verified on the strength of a run that verified nothing. That's the death test surviving contact with itself — and the lesson is the through-line one level up: the discipline was never the check, it's reading the artifact underneath it, including the times you're sure you needn't.
+
+## The method, in one line
+
+Trust the artifact over the instrument, and build the habits that let you do it on purpose rather than only in hindsight. It buys you the difference between a system that works and a number that merely moved — and it costs you time, so spend it where being wrong is expensive.
+
+---
+
+*Part of a series on evaluation-first RAG: [the build](evaluation-first-rag.md) → [the diagnosis](falsification-and-diagnosis.md) → [the fix](article-b-shipping-the-fix.md) → this method, with a companion on [what it all cost](the-cost-of-rigor.md). Code, eval harness, and the run-by-run [metrics ledger](../eval/METRICS_HISTORY.md): [repository](https://github.com/FernandoSanabria/rag-pipeline).*
