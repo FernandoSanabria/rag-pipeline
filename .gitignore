@@ -9,6 +9,9 @@ eval/results/*
 scratchpad/
 .DS_Store
 
+# stray eval / tooling logs (e.g. likeforlike_run.log, router_eval.log) — never committed
+*.log
+
 # same-process A/B repro probe (scratch — not committed)
 scripts/ab_repro_probe.py
 scripts/ab_repro_probe_result.json
