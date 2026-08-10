@@ -5,7 +5,6 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 `reference`). Every row runs from a clean commit; full provenance lives in the matching
 `eval/results/*.json` (gitignored).
 
-> **Commit-hash note.** All commit hashes in this repository were rewritten on **2026-08-08** to consolidate author identity to a single GitHub account (`FernandoSanabria`). File content and commit order are unchanged; the SHAs cited below were remapped old→new accordingly. Archived copies and old clones will carry the pre-rewrite SHAs.
 
 | Row | Pipeline / strategy | faithfulness | answer_relevancy | context_precision | context_recall | answer_correctness | commit | result file |
 |---|---|--:|--:|--:|--:|--:|---|---|
