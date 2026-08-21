@@ -81,18 +81,6 @@ Rule of thumb: the arc is **v1 → v4 (0.40 → 0.57)**; the **shipped** numbers
 reported as labelled absolutes and never sequenced against the canonical v4 (they were measured against
 different baselines — see the ledger's disambiguation).
 
-## Phrase ownership (one owner per signature phrase; everyone else defers)
-| phrase | owner | how the others handle it |
-|---|---|---|
-| *the metric triages; the artifact arbitrates* | `evaluation-first-rag.md` (its through-line) | A calls back ("offered in the last piece … this is where it stopped being tidy"); B demonstrates it up six layers; C distills it (its §5) |
-| *a prediction recorded after the result is a rationalization* | `evaluation-first-rag.md` | A foregrounds the *act* (committed-before) instead of restating the maxim; C states a **distinct working version** in its discipline-1 definition (no SHA) and defers the signature maxim to the owner |
-| *falsify cheaply before you build* | `falsification-and-diagnosis.md` (A) | — |
-| *shipping a system vs shipping a vibe* | `the-cost-of-rigor.md` | — |
-| *the probe that cost (a few retrieval calls)* | `falsification-and-diagnosis.md` (A) | the cost piece references A's probe and links out |
-
-C's earlier open items are resolved: it links the tracked probe docs (`../scripts/decomp_probe_PREDICTION.md`,
-`../eval/decomp_probe_RESULT.md`) with **no commit hash**, and its rationalization restatement is reconciled in
-the table above (distinct working phrasing; owner keeps the signature maxim).
 
 ## Link graph
 - **Target repo:** `rag-pipeline` (so `../eval/…` relative links are correct once an article is committed).
