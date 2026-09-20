@@ -64,3 +64,16 @@ def test_missing_or_none_page_is_skipped():
 def test_unknown_doc_id_falls_back_to_id_not_filename():
     cites = derive_citations(NORMAL_ANSWER, [_chunk("some-unmapped-doc-id", 1)])
     assert cites == [{"document": "some-unmapped-doc-id", "page": 1}]  # id, never a raw filename
+
+
+def test_g1_tool_chunk_excluded_from_citations():
+    """A G1 tool output (source_doc_id='tool:<name>', page=None) is a transformation of a cited source, not
+    a source — it is excluded from citations, while the real source document is cited normally."""
+    chunks = [
+        _chunk(KNOWN_DOC, 3, "real passage"),
+        {"source_doc_id": "tool:ConvertExposureLimit", "page": None,
+         "text": "COMPUTED by ConvertExposureLimit — not a document quote. ..."},
+    ]
+    cites = derive_citations(NORMAL_ANSWER, chunks)
+    assert cites == [{"document": _titles()[KNOWN_DOC], "page": 3}]   # source cited
+    assert all(not c["document"].startswith("tool:") for c in cites)  # tool chunk NOT cited

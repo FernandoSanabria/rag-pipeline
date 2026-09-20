@@ -1,8 +1,15 @@
-"""Minimal LangGraph graph — the v4 path expressed as a graph (2A skeleton).
+"""LangGraph agent graph — router + retrieval strategies + a bounded tool-calling loop (G1).
 
-    START -> retrieve_node -> generate_node -> END
+    START -> router -> (direct) retrieve | (source_scoped) source_scoped_retrieve
+          -> tool_decide <-> tool_exec (bounded loop) -> generate_node -> END
 
-No routing, no decomposition. This is the "empty pipeline baseline" of Phase 2: prove the
+G1 adds the tool loop between retrieval and generation. `generate_node` and `src.generate.generate` are
+UNTOUCHED (the v4 byte-repro path). Because generate grounds ONLY on `retrieved`, a tool output reaches the
+answer solely by `tool_exec` appending a synthetic labeled chunk (source_doc_id="tool:<name>", page=None) to
+`retrieved` — which also keeps the answer traceable to a tool output. A no-tool question passes tool_decide
+straight to generate with `retrieved` unchanged, so the direct path still byte-reproduces v4.
+
+The 2A skeleton this grew from: prove the
 LangGraph plumbing + tracing reproduce v4 BEFORE adding any intelligence. `agent/` is the
 ORCHESTRATION layer — every node wraps an existing `src/` capability and reimplements nothing:
 
@@ -39,6 +46,7 @@ Fresh state per call (invariant (a) in agent/state.py): `ask()` invokes the comp
 
 import json
 import logging
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -47,6 +55,7 @@ from langsmith import traceable
 from pydantic import BaseModel, Field
 
 from agent.state import AgentState, fresh_state
+from agent.tools import TOOL_SCHEMAS, ToolError, run_tool
 from src.config import get_settings
 from src.generate import generate
 from src.retrieve import dense_search, format_contexts
@@ -221,20 +230,134 @@ def generate_node(state: AgentState) -> dict:
     return {"answer": answer, "trace_notes": [note]}
 
 
+# ---- G1 tool-calling loop (tool_decide -> tool_exec, conditional; see module docstring) ----------
+# Two nodes + a conditional edge (not one internal-loop node) so EACH iteration is a visible super-step in
+# the trace — the observability story, and what a future checkpointer (G10b) will resume on.
+CAP = int(os.environ.get("AGENT_TOOL_MAX_ITERATIONS", "3"))          # hard loop bound (§5)
+TOOL_TIMEOUT_S = float(os.environ.get("AGENT_TOOL_TIMEOUT_S", "5"))  # per-tool wall-clock guard
+
+
+@lru_cache(maxsize=1)
+def _tool_llm():
+    """The model with tools bound (bind_tools, free-form: zero/one/several calls). Mirrors _router_llm's
+    factory shape so tests monkeypatch `graph._tool_llm` with a stub whose .invoke -> AIMessage."""
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(model="gpt-4o-mini", temperature=0).bind_tools(TOOL_SCHEMAS)
+
+
+@lru_cache(maxsize=1)
+def _tool_pool():
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="tool")
+
+
+def _tool_prompt(question: str, contexts: list[str], prior_results: list[dict]) -> str:
+    ctx = "\n\n".join(contexts) if contexts else "(no retrieved context)"
+    prior = json.dumps(prior_results, default=str) if prior_results else "(none yet)"
+    return (
+        "You are answering an industrial-safety question. You MAY call a tool, but ONLY if the retrieved "
+        "context below does not already contain the value the question needs — prefer NOT calling a tool when "
+        "the answer is already present. Tools: ConvertExposureLimit (ppm<->mg/m3, gases/vapors only), "
+        "LookupDocumentMetadata (a document's provenance), CompareThresholds (compare two limits). If no tool "
+        "is needed, answer with no tool calls.\n\n"
+        f"Question: {question}\n\nRetrieved context:\n{ctx}\n\nPrior tool results: {prior}"
+    )
+
+
+def tool_decide_node(state: AgentState) -> dict:
+    """Ask the model whether a tool is needed; emit the requested calls (or none). Cap-bounded (§5)."""
+    if state["retrieval_error"]:  # retrieval already failed -> no tools (mirror generate's short-circuit)
+        return {"tool_calls": [], "trace_notes": ["tool_decide[skipped]: retrieval_error -> generate"]}
+    it = state["tool_iterations"]
+    if it >= CAP:  # hard bound: stop looping, generate from what's available (countable signal, not swallowed)
+        logger.warning("tool loop hit cap (%d) for %r -> generating from available context", CAP, state["question"])
+        return {"tool_calls": [], "trace_notes": [f"tool_decide: CAP_REACHED ({CAP} iterations) -> generate"]}
+    try:
+        contexts = format_contexts(state["retrieved"])
+        resp = _tool_llm().invoke(_tool_prompt(state["question"], contexts, state["tool_results"]))
+        calls = list(getattr(resp, "tool_calls", []) or [])
+    except Exception as exc:  # never abort — a decide failure just means no tools this run
+        logger.warning("tool_decide error for %r: %s", state["question"], exc)
+        return {"tool_calls": [], "trace_notes": [f"tool_decide: ERROR {type(exc).__name__}: {exc} -> generate"]}
+    if not calls:
+        return {"tool_calls": [], "trace_notes": [f"tool_decide[iter {it + 1}]: no tools needed -> generate"]}
+    names = ", ".join(c.get("name", "?") for c in calls)
+    return {"tool_calls": calls,
+            "trace_notes": [f"tool_decide[iter {it + 1}]: requested {len(calls)} tool(s): {names}"]}
+
+
+def _route_tools(state: AgentState) -> str:
+    return "tool_exec" if state["tool_calls"] else "generate"
+
+
+def _tool_chunk(name: str, args: dict, result: dict) -> dict:
+    """A synthetic, SELF-DESCRIBING context chunk so the FROZEN generate_node grounds on the tool output.
+    `page=None` so api/citations.py's provenance-skip excludes it (a tool output is a transformation of a
+    cited source, not a source). The 'COMPUTED ... not a document quote' marker keeps the model from citing
+    it in prose as a passage."""
+    text = (
+        f"COMPUTED by {name} — not a document quote.\n"
+        f"args={json.dumps(args, default=str)} -> {json.dumps(result, default=str)}\n"
+        "Input value(s) sourced from the retrieved context above."
+    )
+    return {"text": text, "source_doc_id": f"tool:{name}", "page": None}
+
+
+def tool_exec_node(state: AgentState) -> dict:
+    """Run this iteration's tool calls via the manual Pydantic-validated dispatch, with a per-tool timeout.
+    Success -> a structured `tool_results` entry AND a synthetic chunk into `retrieved`. Failure -> a
+    trace_notes breadcrumb and nothing else (never a fabricated value). Increments the counter, clears calls."""
+    results: list[dict] = []
+    chunks: list[dict] = []
+    notes: list[str] = []
+    for call in state["tool_calls"]:
+        name = call.get("name", "?")
+        args = call.get("args", {}) or {}
+        try:
+            result = _tool_pool().submit(run_tool, name, args).result(timeout=TOOL_TIMEOUT_S)
+            results.append({"tool": name, "args": args, "result": result})
+            chunks.append(_tool_chunk(name, args, result))
+            notes.append(f"tool_exec[{name}]: ok -> {json.dumps(result, default=str)[:100]}")
+        except ToolError as exc:  # honest tool failure — refuse, don't fabricate
+            notes.append(f"tool_exec[{name}]: FAILED ({exc}) -> no result, continuing without it")
+        except Exception as exc:  # timeout / unexpected — same policy: never a guessed value
+            logger.warning("tool_exec %s error: %s", name, exc)
+            notes.append(f"tool_exec[{name}]: ERROR {type(exc).__name__}: {exc} -> no result, continuing without it")
+    return {
+        "tool_results": results,          # add-reducer: accumulates across iterations
+        "retrieved": chunks,              # add-reducer: synthetic tool chunks for the frozen generate
+        "tool_iterations": state["tool_iterations"] + 1,
+        "tool_calls": [],                 # clear this iteration's requests
+        "trace_notes": notes or ["tool_exec: no calls"],
+    }
+
+
 @lru_cache(maxsize=1)
 def _compiled_graph():
     """Build + compile the graph once (stateless; state is per-invoke).
-    START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve → generate → END."""
+    START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve
+          → tool_decide ⇄ tool_exec (G1 loop) → generate → END.
+    The tool loop sits BETWEEN retrieval and generation and is conditional: a question needing no tool passes
+    tool_decide straight to generate, so the direct path byte-reproduces v4 (generate_node and its inputs are
+    untouched on the no-tool path). Two nodes (not one internal loop) so each iteration is a visible
+    super-step for tracing + future checkpointing (G10b)."""
     builder = StateGraph(AgentState)
     builder.add_node("router", router_node)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("source_scoped_retrieve", source_scoped_retrieve_node)
+    builder.add_node("tool_decide", tool_decide_node)
+    builder.add_node("tool_exec", tool_exec_node)
     builder.add_node("generate", generate_node)
     builder.add_edge(START, "router")
     builder.add_conditional_edges("router", _route,
                                   {"source_scoped": "source_scoped_retrieve", "direct": "retrieve"})
-    builder.add_edge("retrieve", "generate")
-    builder.add_edge("source_scoped_retrieve", "generate")
+    builder.add_edge("retrieve", "tool_decide")
+    builder.add_edge("source_scoped_retrieve", "tool_decide")
+    builder.add_conditional_edges("tool_decide", _route_tools,
+                                  {"tool_exec": "tool_exec", "generate": "generate"})
+    builder.add_edge("tool_exec", "tool_decide")
     builder.add_edge("generate", END)
     return builder.compile()
 

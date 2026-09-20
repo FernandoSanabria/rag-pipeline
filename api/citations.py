@@ -5,9 +5,15 @@ API ignores the model's stated pages entirely and builds citations from the retr
 `source_doc_id` + `page` metadata (ground truth), deduped by (document, page). `document` renders from
 the manifest `title` (per CLAUDE.md), never a raw filename. A refused/empty answer yields no citations.
 
-Selection rule: ALL retrieved chunks (deduped) — fully deterministic, no dependence on model output.
-This can over-cite (e.g. a neighbour doc pulled in at k=10), but every citation is a document the
-pipeline actually retrieved to answer the question.
+Selection rule: every retrieved chunk WITH provenance (a source_doc_id AND a non-None page), deduped by
+(document, page) — fully deterministic, no dependence on model output. This can over-cite (e.g. a neighbour
+doc pulled in at k=10), but every citation is a document the pipeline actually retrieved.
+
+G1 tool chunks are deliberately EXCLUDED. A tool output (source_doc_id="tool:<name>") is a *transformation
+of a cited source, not a source itself*, and it carries `page=None`, so the provenance skip below drops it:
+the document that supplied the tool's input value is retrieved and cited normally, while the computed value
+reaches the answer through its synthetic context chunk, not a citation. (Earlier text said "ALL retrieved
+chunks" — corrected here now that tool chunks flow through this function.)
 """
 
 import json
