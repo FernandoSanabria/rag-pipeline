@@ -1,0 +1,53 @@
+{
+  "kind": "capability_set_perrow_metrics",
+  "note": "Derived metrics only (no answer text, no retrieved contexts). Capability set \u2014 NOT comparable to the 28-row ledger.",
+  "ragas_version": "0.4.3",
+  "timestamp_utc": "20260920T234303Z",
+  "generation_backends": [
+    {
+      "model_name": "gpt-4o-mini-2024-07-18",
+      "system_fingerprint": "fp_8ef2fa014c",
+      "n_calls": 2
+    }
+  ],
+  "retrieval_namespace": "semantic_v2",
+  "retrieval_k": 10,
+  "n_rows": 2,
+  "tool_fired": 2,
+  "per_metric_n": {
+    "faithfulness": 2,
+    "answer_relevancy": 2,
+    "context_precision": 2,
+    "context_recall": 2,
+    "answer_correctness": 2
+  },
+  "aggregate": {
+    "faithfulness": 0.9166666666666667,
+    "answer_relevancy": 0.8264691820373586,
+    "context_precision": 0.8520797258202715,
+    "context_recall": 1.0,
+    "answer_correctness": 0.5818247466704953
+  },
+  "rows": [
+    {
+      "i": 0,
+      "question": "A workplace air sample shows 75 ppm of anhydrous ammonia. Express that concentration in mg/m3.",
+      "tool_fired": true,
+      "faithfulness": 0.8333333333333334,
+      "answer_relevancy": 0.7887628420343159,
+      "context_precision": 0.9572979797884068,
+      "context_recall": 1.0,
+      "answer_correctness": 0.4870407312810602
+    },
+    {
+      "i": 1,
+      "question": "A chlorine reading of 4 ppm was recorded at a process line. Convert that concentration to mg/m3.",
+      "tool_fired": true,
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.8641755220404015,
+      "context_precision": 0.7468614718521361,
+      "context_recall": 1.0,
+      "answer_correctness": 0.6766087620599304
+    }
+  ]
+}

@@ -55,13 +55,49 @@ def _router_direct_by_default(monkeypatch):
     monkeypatch.setattr(graph, "_router_llm", _route_llm(False, None))
 
 
-def test_fresh_state_initializes_all_nine_channels():
-    """State construction contract: fresh_state seeds ALL 9 channels with correct defaults, so no
-    node ever reads an unset channel and the add-reducer accumulators start EMPTY (invariant (a))."""
+# ---- G1 tool-loop stubs ----
+class _StubToolLLM:
+    """Stub for graph._tool_llm() — .invoke(prompt) returns an object carrying `.tool_calls` (no LLM call).
+    `sequence` yields one tool_calls list per invoke then [] (a bounded loop); `always` returns the same
+    list every invoke (to drive the loop to its cap)."""
+
+    def __init__(self, sequence=None, always=None):
+        self._seq = list(sequence or [])
+        self._always = always
+
+    def invoke(self, prompt):
+        if self._always is not None:
+            tc = self._always
+        elif self._seq:
+            tc = self._seq.pop(0)
+        else:
+            tc = []
+        return type("AIMsg", (), {"tool_calls": list(tc), "content": ""})()
+
+
+def _tool_llm_stub(sequence=None, always=None):
+    # Return the SAME stub every call (the real _tool_llm is @lru_cache), so a `sequence` depletes across
+    # loop iterations instead of resetting each tool_decide.
+    stub = _StubToolLLM(sequence=sequence, always=always)
+    return lambda: stub
+
+
+@pytest.fixture(autouse=True)
+def _tool_llm_no_calls(monkeypatch):
+    """Default every agent invocation's tool_decide to NO tool calls (hermetic), so existing 2A/2C/2D tests
+    take the unchanged path. Tool tests override graph._tool_llm with a sequence/always stub."""
+    monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub())
+
+
+def test_fresh_state_initializes_all_twelve_channels():
+    """State construction contract: fresh_state seeds ALL 12 channels with correct defaults (9 original +
+    the 3 G1 tool channels), so no node ever reads an unset channel and the add-reducer accumulators
+    (`retrieved`, `trace_notes`, `tool_results`) start EMPTY (invariant (a))."""
     st = fresh_state("what is X?")
     assert set(st) == {
         "question", "sub_questions", "route", "source_doc_id", "retrieval_error",
         "retrieved", "answer", "citations", "trace_notes",
+        "tool_calls", "tool_results", "tool_iterations",
     }
     assert st["question"] == "what is X?"
     assert st["route"] == "direct"         # 2A / v4 direct path
@@ -72,6 +108,9 @@ def test_fresh_state_initializes_all_nine_channels():
     assert st["trace_notes"] == []          # add-reducer accumulator starts empty
     assert st["citations"] == []
     assert st["answer"] == ""
+    assert st["tool_calls"] == []           # G1: no tool calls yet
+    assert st["tool_results"] == []         # G1: add-reducer accumulator starts empty
+    assert st["tool_iterations"] == 0       # G1: loop counter
 
     # Aliasing / independence — a shared-mutable-default would pass every ==[] check above yet break
     # invariant (a) (evidence leaking across invocations). Two fresh states must be independent, and a
@@ -346,3 +385,72 @@ def test_source_scoped_fallback_also_failing_sets_sentinel(monkeypatch):
     assert state["retrieved"] == []
     assert state["answer"] == ""
     gen.assert_not_called()
+
+
+# ---------------- G1 tool-calling loop ----------------
+_CONVERT_CALL = {"name": "ConvertExposureLimit",
+                 "args": {"value": 50, "from_unit": "ppm", "to_unit": "mg/m3", "substance": "ammonia"},
+                 "id": "c1"}
+
+
+def test_tool_using_question_runs_loop_and_grounds(monkeypatch):
+    """Tool question: tool_decide requests a call, tool_exec runs the REAL tool, the result lands in
+    `retrieved` as a self-describing tool chunk (and in `tool_results`), generate sees it, loop ends (1 round)."""
+    gen = _stub_ok(monkeypatch)
+    monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub(sequence=[[_CONVERT_CALL]]))
+
+    state = graph._compiled_graph().invoke(fresh_state("convert 50 ppm ammonia to mg/m3"))
+
+    assert state["tool_iterations"] == 1
+    assert any(n.startswith("tool_exec[ConvertExposureLimit]: ok") for n in state["trace_notes"])
+    tool_chunks = [c for c in state["retrieved"] if c["source_doc_id"] == "tool:ConvertExposureLimit"]
+    assert len(tool_chunks) == 1
+    assert "COMPUTED by ConvertExposureLimit" in tool_chunks[0]["text"]   # self-describing marker
+    assert "not a document quote" in tool_chunks[0]["text"]
+    assert "34.826" in tool_chunks[0]["text"]                             # 50 * 17.03 / 24.45
+    assert tool_chunks[0]["page"] is None                                  # -> excluded from citations
+    assert state["tool_results"][0]["result"]["value"] == pytest.approx(34.8262, abs=0.01)
+    gen.assert_called_once()
+    passed_contexts = gen.call_args.args[1]                                # generate(question, contexts)
+    assert any("COMPUTED by ConvertExposureLimit" in c for c in passed_contexts)  # tool output grounded
+
+
+def test_no_tool_question_takes_unchanged_path(monkeypatch):
+    """No tool needed (autouse no-calls stub): tool_exec NEVER fires, `retrieved` gets no tool chunk, the
+    loop counter stays 0, and generate runs once on the unchanged contexts (the byte-repro direct path)."""
+    gen = _stub_ok(monkeypatch)
+    state = graph._compiled_graph().invoke(fresh_state("who removes a lockout device?"))
+
+    assert not any(n.startswith("tool_exec") for n in state["trace_notes"])   # tool_exec never fired
+    assert state["tool_iterations"] == 0
+    assert state["tool_results"] == []
+    assert all(not c["source_doc_id"].startswith("tool:") for c in state["retrieved"])
+    assert state["retrieved"] == CHUNKS                                       # unchanged
+    gen.assert_called_once()
+
+
+def test_tool_failure_produces_no_fabricated_value(monkeypatch):
+    """A failing tool (sodium hydroxide is a particulate — ppm<->mg/m3 invalid) records the failure and
+    appends NO chunk/result: the answer can only ground on real context, never a guessed exposure limit."""
+    _stub_ok(monkeypatch)
+    bad = {"name": "ConvertExposureLimit",
+           "args": {"value": 2, "from_unit": "mg/m3", "to_unit": "ppm", "substance": "sodium hydroxide"},
+           "id": "c1"}
+    monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub(sequence=[[bad]]))
+
+    state = graph._compiled_graph().invoke(fresh_state("convert the NaOH limit to ppm"))
+    assert any("tool_exec[ConvertExposureLimit]: FAILED" in n for n in state["trace_notes"])
+    assert state["tool_results"] == []                                       # no fabricated result
+    assert all(not c["source_doc_id"].startswith("tool:") for c in state["retrieved"])  # no tool chunk
+
+
+def test_tool_loop_hits_cap_and_terminates(monkeypatch):
+    """A model that always requests a tool must stop at CAP and generate from what's available — a bounded
+    loop, not a runaway cost incident."""
+    gen = _stub_ok(monkeypatch)
+    monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub(always=[_CONVERT_CALL]))
+
+    state = graph._compiled_graph().invoke(fresh_state("loop please"))
+    assert state["tool_iterations"] == graph.CAP                             # stopped exactly at the cap
+    assert any("CAP_REACHED" in n for n in state["trace_notes"])
+    gen.assert_called_once()                                                  # generated after the cap

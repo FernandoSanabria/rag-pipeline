@@ -11,7 +11,9 @@ A LangGraph channel with NO reducer is *last-write-wins* (overwrite). A channel 
 `Annotated[T, add]` is *accumulate* (the reducer merges the prior value with each node's
 return instead of replacing it). Two fields accumulate; the rest overwrite:
 
-EIGHT channels — six overwrite, two accumulate:
+TWELVE channels — nine overwrite, three accumulate. (`source_doc_id` was added in 2C and the three `tool_*`
+channels in G1; the earlier "eight" prose predated both — eval/replay_safety_design.md §1 flagged the stale
+count. It is corrected here.)
 
   field            reducer        why
   question         overwrite      set once at entry, read-only thereafter
@@ -19,11 +21,18 @@ EIGHT channels — six overwrite, two accumulate:
   route            overwrite      routing decision; router writes it, source-scoped retrieve may
                                   DOWNGRADE it to "direct" on an execution fallback (2D) — both
                                   sequential (never parallel), so overwrite stays correct
+  source_doc_id    overwrite      2C: doc to source-scope to; router sets, 2D fallback clears; sequential
   retrieval_error  overwrite      True only when retrieve_node caught an exception; single writer
-  retrieved        add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches
+  retrieved        add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches; G1: tool_exec
+                                  also appends synthetic tool-output chunks here (see G1 block below)
   answer           overwrite      produced by ONE node (generate); no fan-in
   citations        overwrite      derived once from the deduped context; no fan-in
   trace_notes      add (ACCUM)    every node (incl. parallel branches) appends a breadcrumb
+  tool_calls       overwrite      G1: tool calls the model requested THIS iteration; tool_decide sets,
+                                  tool_exec clears; one writer per super-step, no fan-in
+  tool_results     add (ACCUM)    G1: results across loop iterations must CONCATENATE; no dedup (a re-run
+                                  genuinely ran — like trace_notes)
+  tool_iterations  overwrite      G1: loop counter; tool_exec increments; idempotent last-write
 
 Why `retrieved` MUST accumulate (the #1 silent LangGraph bug)
 -------------------------------------------------------------
@@ -85,6 +94,24 @@ api/citations.py's page-level (document, page) dedup for citations — do NOT me
 `chunk_content_key`. Two dedups, two granularities, by design.
 `page`/`source_doc_id` may be None and `text` may be "" — all are stable, hashable values.
 The basis is recorded here as `chunk_content_key`; the actual dedup lives in synthesize_node.
+
+--------------------------------------------------------------------------------
+G1 tool-loop channels — replay rules (per eval/replay_safety_design.md §4)
+--------------------------------------------------------------------------------
+tool_calls (overwrite / LastValue): idempotent replace; single writer per super-step (tool_decide sets,
+  tool_exec clears); no fan-in — safe under any re-entry.
+tool_results (add, ACCUM): accumulates one entry per (iteration, tool) by design. Replay: a retried
+  tool_exec DISCARDS its failed-attempt writes before re-running (§1: LangGraph clears task.writes each
+  attempt), so a retry appends once, not twice; fresh_state per invocation (invariant (a)) blocks cross-row
+  leak; NO dedup (a re-executed tool genuinely ran — the record should show it, like trace_notes). Under the
+  checkpoint-replay family (update_state / thread reuse / fork) it appends like any add channel (§4 hazard),
+  mitigated by one-thread-per-question (G10b). No checkpointer today, so inert now.
+tool_iterations (overwrite / LastValue): idempotent counter; a retried write re-reads state and produces the
+  same n+1 once.
+
+Also NEW in G1: tool_exec is a SECOND writer of `retrieved` (add), appending synthetic tool-output chunks
+(source_doc_id="tool:<name>", page=None) so the FROZEN generate_node grounds on tool results without being
+touched. Inherits retrieved's §4 policy; retrieved's reducer STAYS operator.add (RemoveChunk deferred, §5).
 """
 
 from operator import add
@@ -103,6 +130,10 @@ class AgentState(TypedDict):
     answer: str                                # final grounded answer (single writer: generate)
     citations: list[dict]                      # stays [] in 2A — API layer owns citations (see below)
     trace_notes: Annotated[list[str], add]     # ACCUMULATE per-node breadcrumbs — path record for eval
+    # --- G1 tool-calling loop (replay rules in the module docstring's "G1 tool-loop channels" block) ---
+    tool_calls: list[dict]                     # tool calls requested THIS iteration (overwrite: tool_decide sets, tool_exec clears)
+    tool_results: Annotated[list[dict], add]   # ACCUMULATE tool results across loop iterations
+    tool_iterations: int                       # loop counter (overwrite: tool_exec increments)
 
 
 # `citations` is intentionally NOT populated by any node in the 2A skeleton. Citation ownership
@@ -132,11 +163,12 @@ class AgentState(TypedDict):
 def fresh_state(question: str) -> AgentState:
     """Build a brand-new AgentState for a single invocation (invariant (a)).
 
-    Initializes ALL EIGHT channels explicitly, so no node ever reads an unset channel and
-    KeyErrors. The accumulators (`retrieved`, `trace_notes`) start EMPTY so no evidence leaks
-    in from a prior call, `route` defaults to "direct" (the 2A / v4 path), and `retrieval_error`
-    defaults to False. The entry adapter that wraps the graph (to mirror src.pipeline.ask's
-    per-question contract) MUST call this per question; never reuse a returned dict across rows.
+    Initializes ALL TWELVE channels explicitly, so no node ever reads an unset channel and
+    KeyErrors. The accumulators (`retrieved`, `trace_notes`, `tool_results`) start EMPTY so no evidence
+    leaks in from a prior call, `route` defaults to "direct" (the 2A / v4 path), `retrieval_error`
+    defaults to False, and the G1 tool loop starts with no calls and zero iterations. The entry adapter
+    that wraps the graph (to mirror src.pipeline.ask's per-question contract) MUST call this per question;
+    never reuse a returned dict across rows.
     """
     return AgentState(
         question=question,
@@ -148,6 +180,9 @@ def fresh_state(question: str) -> AgentState:
         answer="",
         citations=[],
         trace_notes=[],
+        tool_calls=[],
+        tool_results=[],
+        tool_iterations=0,
     )
 
 

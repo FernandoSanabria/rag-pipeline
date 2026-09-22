@@ -80,7 +80,7 @@ Embeddings: OpenAI `text-embedding-3-small`. Generation: `gpt-4o-mini` (temperat
 The shipped pipeline is v4 dense retrieval over the **`semantic_v2`** namespace (structure-aware re-chunking — the 2B lever that recovered the NIOSH-IDLH-vs-EPA-endpoint comparison). On top of it, the LangGraph agent adds a **router** that source-scopes single-document questions. Two endpoints serve it:
 
 - **`POST /ask`** — the direct v4 path (`retrieve → generate`) on `semantic_v2`. The shipped, promoted default: no router, no per-request LLM tax.
-- **`POST /ask/agent`** — `router → {direct | source_scoped} → generate`. Pays a `gpt-4o-mini` router call (~1s, ~$0.0001) on **every** request to recover source-anchored questions (e.g. the acetone flash point "per the Sigma-Aldrich SDS"), and returns the route taken (`route` / `source_doc_id` / `routing_reason`). The richer path — **not** a drop-in replacement for `/ask`.
+- **`POST /ask/agent`** — `router → {direct | source_scoped} → tool_decide ⇄ tool_exec → generate`. Pays a `gpt-4o-mini` router call plus a `gpt-4o-mini` tool-decision call on **every** request; when a question needs it, runs bounded tools (ppm↔mg/m³ exposure-limit conversion, document-metadata lookup) — a loop **capped at 3 iterations**, with per-tool timeouts and honest refusal on failure — otherwise passes straight to `generate` unchanged. Returns the route taken (`route` / `source_doc_id` / `routing_reason`). The richer path — **not** a drop-in replacement for `/ask`.
 
 <!-- regenerate: uv run python scripts/render_graph.py -->
 ```mermaid
@@ -89,13 +89,18 @@ graph TD;
     router(router)
     retrieve(retrieve)
     source_scoped_retrieve(source_scoped_retrieve)
+    tool_decide(tool_decide)
+    tool_exec(tool_exec)
     generate(generate)
     __end__([END]):::last
     __start__ --> router;
     router -. direct .-> retrieve;
     router -. source_scoped .-> source_scoped_retrieve;
-    retrieve --> generate;
-    source_scoped_retrieve --> generate;
+    retrieve --> tool_decide;
+    source_scoped_retrieve --> tool_decide;
+    tool_decide -. tools .-> tool_exec;
+    tool_decide -. done .-> generate;
+    tool_exec --> tool_decide;
     generate --> __end__;
     classDef first fill-opacity:0
     classDef last fill:#bfb6fc
