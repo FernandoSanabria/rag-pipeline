@@ -51,3 +51,29 @@ values the corpus does not print:
 - "A chlorine reading of 4 ppm … convert to mg/m³." (→ 11.60 mg/m³)
 A probe confirmed the revised rows fire `ConvertExposureLimit`. Recorded here the same way the promotion-gate
 mis-specification was — the revision is disclosed, dated before scoring, and its reason stated.
+
+---
+
+## Outcome (recorded 2026-09-23)
+
+Scored against this pre-registration (not fitted to it). Full evidence: `eval/g1_closure_probe.md`,
+`eval/g1_closure_PREDICTION.md` (commit `e0de6ec`), and the G1-closure block in `eval/METRICS_HISTORY.md`.
+
+- **Prediction 2 ("`tool_exec` fires on 0/28") — FALSIFIED.** It fired on **2/28** on the scored run
+  (`eval_20260920T230921Z.json`): row 8 (ammonia IDLH vs EPA endpoint) **and** row 20 (chlorine ceiling
+  agreement) — both **comparison** rows, both calling `CompareThresholds`. The original prediction only
+  considered the four exposure-limit rows (9/10/11/21); it missed that comparison questions trigger the
+  compare tool. Firing is **stochastic**: N=4 re-invocations gave row 8 4/4, row 20 3/4; a later
+  fp-matched like-for-like fired on row 8 only. "N/28 fired" is a per-run draw.
+- **Prediction 1 ("aggregate flat") — not the story.** The tool loop does not re-answer the frozen 28
+  neutrally: on **row 8 it is a net regression** (answer_correctness Arm CAP=3 0.8166 vs CAP=0 0.9277,
+  Δ −0.1111, N=10/arm, fp-matched). Mechanism: the model **stops reproducing the EPA document's
+  `0.14 mg/L`** (the reference's token) when the tool's synthetic chunks are in context — attention, not
+  retrieval (the chunk stays present). Row 20's fire is spurious and harmless.
+- **The capability the frozen 28 do not exercise — CONFIRMED, narrowly.** On a **source-scoped** question
+  whose document lacks a conversion factor (acetone SDS, mg/m³→ppm), the tool is **load-bearing**: correct
+  grounded answer **5/5 with tool vs 0/5 without** (3 refusals + 2 grounding violations). No load-bearing
+  row exists on the full-corpus path — the NIOSH Pocket Guide tabulates every factor.
+- **Net:** the tool as shipped is not shown to improve the frozen-28 and is a regression on the one row it
+  reliably fires on; it is genuinely useful only when retrieval is scoped away from the corpus's tables.
+  No promotion decision is at stake — `/ask/agent` was never promoted on these numbers.
