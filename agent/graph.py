@@ -295,8 +295,9 @@ def _route_tools(state: AgentState) -> str:
 def _tool_chunk(name: str, args: dict, result: dict) -> dict:
     """A synthetic, SELF-DESCRIBING context chunk so the FROZEN generate_node grounds on the tool output.
     `page=None` so api/citations.py's provenance-skip excludes it (a tool output is a transformation of a
-    cited source, not a source). The 'COMPUTED ... not a document quote' marker keeps the model from citing
-    it in prose as a passage."""
+    cited source, not a source). NOTE: the 'COMPUTED ... not a document quote' marker does NOT prevent the
+    model from citing the chunk in prose (observed 5/5 on the source-scoped acetone row,
+    eval/g1_closure_probe.md); structured citations exclude it via page=None regardless."""
     text = (
         f"COMPUTED by {name} — not a document quote.\n"
         f"args={json.dumps(args, default=str)} -> {json.dumps(result, default=str)}\n"

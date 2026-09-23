@@ -21,7 +21,7 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
 | semantic_v2 — Gate-2 (first gate, drift-confounded) | structure-aware re-chunking (name-anchored per-entry NIOSH + per-section acetone) into a NEW namespace `semantic_v2`; `RETRIEVAL_NAMESPACE=semantic_v2`, PIPELINE=v4, k=10; single run, **fp `fp_c881474fd1` ≠ v4's `fp_6cc92eaef9` (drift)** → aggregates DIRECTIONAL, NOT a band pass; read-verified per-row. **Superseded for the promotion decision by the fp-matched like-for-like below** (kept as history, not deleted) | 0.9478 | 0.8658 | 0.7230 | 0.9872 | **0.5764** | `6040ce3` | `eval_20260802T211136Z.json` (gitignored) |
 | semantic_v2 — fp-matched like-for-like (**PROMOTION BASIS**) | interleaved v2-vs-v4 per row, **BOTH arms fp `fp_c881474fd1`, 28/28 rows shared (zero backend drift)**; v2-side aggregates over the per-metric non-NaN intersection (n = 19/28/28/20/28); Δ(v2−fresh-v4) = +0.0077 / +0.0351 / −0.0186 / +0.0458 / +0.0101 — sole negative is precision −0.0186 (in-band); cleared the corrected asymmetric bar (`cef7e24`) → **PROMOTED** default `RETRIEVAL_NAMESPACE=semantic_v2` (`8205164`) | 0.9474 | 0.8702 | 0.7444 | 0.9833 | **0.5932** | `529528e` | `eval/rechunk_2bc_likeforlike.md` (+ gitignored `scripts/likeforlike_result.json`) |
 | semantic_v2 + source-scoped router (2C, agent) | `PIPELINE=agent`, semantic_v2, k=10; single run, **fp `fp_c881474fd1` ×28**; router source-scopes single-document rows (21–24), everything else routes DIRECT; **acetone (row 24) answer_correctness 0.036 → 0.717, read-verified −17.0 °C — FULL 28-row eval** (0.036 baseline = the Gate-2 semantic_v2 no-router row above). Ships on `/ask/agent` (Phase 2D) | 0.9778 | 0.8876 | 0.7310 | 0.9674 | **0.6305** | `088d5c2` | `eval_20260803T234054Z.json` (gitignored) |
-| G1 tool loop (agent) | `PIPELINE=agent`, semantic_v2, k=10; single run **fp `fp_8ef2fa014c` ×28 ≠ 2C's `fp_c881474fd1`** → **DRIFT: Δ below is directionally consistent, NOT a confirmed flat** (all 5 within ±0.03; a clean verdict needs an fp-matched like-for-like — deferred, since the one differing row is read-verified unchanged). Tool loop added (Convert / Metadata / Compare). **`tool_exec` fired on 1/28 — row 8 (ammonia IDLH-vs-EPA-RMP): model called CompareThresholds + 2× ConvertExposureLimit (ok); 3 tool chunks entered context but the model answered in ppm and IGNORED the computed mg/m³ — per-row answer_correctness 0.6333 vs 2C 0.6331 (no change) → a SPURIOUS, unused tool call; row 8 not comparable**. Other 27 = unchanged path (byte-repro preserved). Pre-reg `eval/toolcall_PREDICTION.md`: "0 tool-fires" FALSIFIED (1/28); loop/cap/failure/citation-exclusion verified, but the feature is **NOT yet shown to improve an answer**. `generate_node`/`src.generate` untouched. | 0.9710 | 0.8860 | 0.7483 | 0.9549 | **0.6186** | `feat/g1-tool-loop` | `eval_20260920T230921Z.json` (gitignored) |
+| G1 tool loop (agent) | `PIPELINE=agent`, semantic_v2, k=10; single run **fp `fp_8ef2fa014c` ×28 ≠ 2C's `fp_c881474fd1`** → **DRIFT: Δ below is directionally consistent, NOT a confirmed flat** (all 5 within ±0.03; a clean verdict needs an fp-matched like-for-like — deferred, since the one differing row is read-verified unchanged). Tool loop added (Convert / Metadata / Compare). **`tool_exec` fired on 1/28 — row 8 (ammonia IDLH-vs-EPA-RMP): model called CompareThresholds + 2× ConvertExposureLimit (ok); 3 tool chunks entered context but the model answered in ppm and IGNORED the computed mg/m³ — per-row answer_correctness 0.6333 vs 2C 0.6331 (no change) → a SPURIOUS, unused tool call; row 8 not comparable**. Other 27 = unchanged path (byte-repro preserved). Pre-reg `eval/toolcall_PREDICTION.md`: "0 tool-fires" FALSIFIED (1/28); loop/cap/failure/citation-exclusion verified, but the feature is **NOT yet shown to improve an answer**. `generate_node`/`src.generate` untouched. **[corrected 2026-09-23: was "1/28 — row 8"; the scored result file shows `tool_exec` fired on 2/28 — rows 8 AND 20 (row 20 was missed). Firing is stochastic: N=4 re-invocations gave row 8 4/4, row 20 3/4; the `fp_f240edfbb6` like-for-like run fired on row 8 only (1/28). "N/28 fired" is a per-run draw, not a property of the graph. Full closure below.]** | 0.9710 | 0.8860 | 0.7483 | 0.9549 | **0.6186** | `feat/g1-tool-loop` | `eval_20260920T230921Z.json` (gitignored) |
 | Δ G1 − 2C agent | drift-confounded (diff fp) → DIRECTIONAL, not confirmed; all five within ±0.03 | −0.0068 | −0.0016 | +0.0173 | −0.0125 | **−0.0119** | | |
 | G1 capability set (NOT comparable — different set) | 2 conversion rows (`eval/capability_set.jsonl`, measured ppm values the corpus doesn't pre-tabulate); `PIPELINE=agent`, fp `fp_8ef2fa014c` ×2; **tool fired 2/2**. Controlled with-vs-without (CAP=0) `answer_correctness`: row0 (75 ppm NH₃) **0.487** w / **0.531** w/o; row1 (4 ppm Cl₂) **0.677** w / **0.549** w/o — **MIXED, within noise (n=2). The corpus supplies per-ppm factors (0.70, 2.90 mg/m³/ppm) the model applies without the tool, so the tool is not shown to improve correctness even here.** Derived metrics-only committed: `eval/capability_perrow_metrics.json` (no answer/contexts). | 0.9167 | 0.8265 | 0.8521 | 1.0000 | **0.5818** | `feat/g1-tool-loop` | `eval/capability_perrow_metrics.json` |
 
@@ -263,3 +263,45 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     pipeline we ship — dense retrieval, semantic chunks, k=10, no lexical arm, no fusion — is *simpler*
     than the one originally planned; the simplification was earned by killing complexity with evidence
     rather than adding it on faith.
+
+---
+
+## G1 closure (recorded 2026-09-23) — pre-registered controls, not a promotion
+
+Pre-registration `eval/g1_closure_PREDICTION.md` (commit `e0de6ec`, committed BEFORE any scored run).
+Findings in `eval/g1_closure_probe.md`. **No promotion decision is at stake:** `/ask` is the shipped
+default; `/ask/agent` is the richer path and was never promoted on these numbers. These rows are
+controls (self-contained HEAD CAP=3 vs CAP=0), **not** comparable to the 28-row arc above.
+
+- **Q1 — frozen-28 CAP=3 vs CAP=0 like-for-like** (one process, both arms fp `fp_f240edfbb6`, zero drift).
+  - **(a) HOLDS** — `tool_exec` fired on **[8]** this run (1/28; stochastic — see the correction above);
+    the **27/27 non-firing rows have byte-identical contexts** across arms (asserted in code). Of those
+    27, **answer-text is byte-identical in 16/27** — the other 11 differ by generation non-determinism
+    *despite identical contexts* (identical contexts do NOT imply identical answers or judge scores).
+  - **(b) HOLDS** — the differing-contexts set `{8}` equals the firing set `{8}`.
+  - **(c)** scored: **answer_relevancy Δ +0.0018**, **context_recall Δ +0.0263** (both within ±0.03).
+    **faithfulness / context_precision / answer_correctness = NOT TESTABLE this session** — the RAGAS
+    multi-step judge failed (timeouts / all-NaN under batch). *Deterministic note (not a verdict):*
+    27/28 rows are byte-identical in context and row 8 is the only differing row.
+- **Q2 — row 8, 3-arm control** (N=10/arm, fp-matched `fp_f240edfbb6`). The tool is a **net regression**
+  on row 8. Incorporation of a mass-concentration unit in the answer: **Arm 0 (CAP=0, no tool) 10/10 vs
+  Arm 1 (CAP=3, tool) 3/10.** answer_correctness (sequential): **Arm 0 0.9277 (n=9) vs Arm 1 0.8166
+  (n=8), Δ −0.1111.** Mechanism = **attention, not retrieval**: the EPA chunk carrying `0.14 mg/L`
+  (the reference's exact token) **remains in the CAP=3 context** (13 chunks = 10 retrieved + 3 tool), but
+  the model's answer **stops reproducing it (10/10 → 0/10)** when the 3 synthetic tool chunks are present,
+  substituting an unmatched mg/m³ (3/10) or nothing (7/10). The pre-registered predictions (Arm 0 ≤3/10,
+  Arm 1 ≥4/10, correctness within ±0.03) are **falsified in the opposite direction**. Arm 2 (a
+  `_tool_chunk` phrasing change) was **not run** (kill rule): making the model use the tool's value *more*
+  would inject more mg/m³ and worsen the displacement; the tool emits mg/m³, never the reference's mg/L,
+  so no chunk phrasing can fix it.
+- **Q3 — acetone capability row** (`eval/capability_set.jsonl`, source-scoped to `sds-sigma-aldrich-acetone`;
+  NOT comparable to the 28). Router dry-invoke → `source_scoped`. **With tool: correct 35.61 ppm 5/5;
+  without tool: 0/5** (3 honest refusals + 2 grounding-violation computes from prior knowledge). RAGAS
+  metric NOT TESTABLE this session; the deterministic 5/5-vs-0/5 result is the finding. **Load-bearing
+  condition (precise):** the value `84.58 mg/m³` comes from the *question*; the document's role is only
+  that source-scoping to it **excludes the NIOSH Pocket Guide's conversion-factor line**, so no factor is
+  in context and the model must use the tool, refuse, or violate grounding.
+
+**Per-metric n note:** on the frozen-28 G1 run (`eval_20260920T230921Z.json`) row 8 scored
+`faithfulness = NaN` and, on the 2C run, row 8 scored `context_recall = NaN` — one judge-parse dropout
+each (a dropped cell, counted in per-metric n, not a zero).

@@ -119,3 +119,35 @@ retention; this is a later run of the identical RAGAS 0.4.3 metric set.
 - **Retries inflate traced vs. billed.** LangSmith counts attempts (incl. rate-limited 429 retries);
   OpenAI bills successes. That is the 5,204-traced vs. ~3,766-billed gap in §A, and it is visible in
   the cumulative error volume (2026-07-08: ~1.24K errored calls atop ~3.13K successes).
+
+---
+
+## C. G1 closure (2026-09-22 → 09-23) [d, estimated from call counts — not yet dashboard-reconciled]
+Spend for the G1-closure controls (Q1 like-for-like, Q2 row-8 3-arm, Q3 acetone) plus the §1 probes.
+All `gpt-4o-mini` + `text-embedding-3-small`; no new corpus embedding. Call counts are counted from the
+run scripts; cost is **derived** at list price (≈1.5K input / 0.2K output tokens per judge call) and is an
+**estimate pending a dashboard read**, not a measured figure.
+
+| item | ~calls | flag |
+|---|--:|:--|
+| §1 probes (trace re-run, N=4 variance, retrieval probes) | ~40 chat + ~8 embed | d |
+| Q2 generation (row 8, 20 invokes) | ~70 | d |
+| Q2 sequential answer_correctness (the scoring that worked) | ~90 | d |
+| Q1 generation (28×2 invokes) | ~180 | d |
+| Q1 scoring (2nd batch — relevancy+recall usable, 3 metrics NaN) | ~900 | d |
+| Q3 (acetone, 10 invokes + 1 router) | ~31 | d |
+| **subtotal (useful work)** | **~1,320 chat** | d |
+| **WASTE — RAGAS scoring failures re-run** | | |
+| — Q2 batch score attempt 1 (timeout storm, n=6/10) | ~320 | d |
+| — Q2 rescore batch attempt 2 (all-NaN) | ~120 | d |
+| — Q1 batch score attempt 1 (scored then LOST to a print crash) | ~900 | d |
+| **waste subtotal** | **~1,340 chat** | d |
+| **total** | **~2,700 chat + ~8 embed** | d |
+| **estimated cost** | **~$0.90** (≈$0.6 input + ≈$0.3 output) | d |
+
+**Waste finding:** the RAGAS multi-step judge (faithfulness / context_precision / answer_correctness)
+failed repeatedly under batch concurrency this session (timeouts / all-NaN), and one crashed batch was
+scored then lost to a formatting bug before save. The failed/lost scorings (~1,340 calls, ~half the spend)
+roughly **doubled** the closure cost. Sequential single-sample scoring was the only reliable path for
+answer_correctness. Mitigation for next time: score sequentially (or save raw per-sample scores before any
+aggregation), and treat batch RAGAS as best-effort.
