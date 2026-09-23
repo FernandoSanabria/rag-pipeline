@@ -53,11 +53,38 @@ commit `e0de6ec`, G1-closure block in `eval/METRICS_HISTORY.md`). **No promotion
   firing on comparison rows** — backlog, not fixed here.
 
 **Backlog lines (not fixed):**
-- **Prose-citation of tool chunks.** `agent/graph.py._tool_chunk`'s "COMPUTED … not a document quote"
-  marker does **not** stop the model citing the chunk in prose — observed `[source_doc_id=tool:...]` in
-  **5/5** with-tool acetone answers. The *structured* `citations` array still excludes tool chunks
-  (`page=None`), so provenance is safe; only the in-prose text names the tool. Docstring corrected to state
-  the observed behaviour; no code change.
+- **Prose-citation & misattribution of tool-derived values.** `agent/graph.py._tool_chunk`'s
+  "COMPUTED … not a document quote" marker does **not** stop the model citing the chunk in prose —
+  observed `[source_doc_id=tool:...]` in **5/5** with-tool acetone answers (docstring corrected to state
+  this; no code change). Structured citations exclude tool chunks via `page=None`, which produces a
+  **MISATTRIBUTION** rather than safe provenance: on the acetone capability question, `/ask/agent` returned
+  35.61 ppm with confidence 0.9 ('high') and nine citations to `sds-sigma-aldrich-acetone` pages — none of
+  which contain the value or a conversion factor. The number came from `ConvertExposureLimit`; the
+  citations point at the pages the model read, not at the computation that produced the answer. The
+  confidence basis does not mention the tool. **Backlog:** a tool-derived value needs its own attribution
+  (a 'computed' citation kind, or a `confidence_basis` entry naming the tool and args); until then a
+  high-confidence tool-derived answer looks fully document-sourced to the caller. Raw response:
+  ```json
+  {
+    "answer": "The PROC15 modeled worker inhalation concentration of 84.58 mg/m³ is equivalent to approximately 35.61 ppm. This conversion is based on the molar mass of acetone (58.08 g/mol) and standard conditions (25°C, 1 atm) for the conversion factor. \n\n[source_doc_id=tool:ConvertExposureLimit]",
+    "citations": [
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 27},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 25},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 21},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 22},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 1},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 26},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 24},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 20},
+      {"document": "Sigma-Aldrich Safety Data Sheet — Acetone", "page": 19}
+    ],
+    "confidence_score": 0.9,
+    "confidence_basis": "high: answer generated from retrieved context",
+    "route": "source_scoped",
+    "source_doc_id": "sds-sigma-aldrich-acetone",
+    "routing_reason": "Question attributed to a single named document: Sigma-Aldrich Safety Data Sheet — Acetone"
+  }
+  ```
 - **Grounding violation without the tool.** On the source-scoped acetone question with the tool disabled,
   2/5 answers computed the conversion from **prior chemistry knowledge not in the retrieved context** (a
   grounding violation) rather than refusing. Worth a guard that a source-scoped answer cite only in-context
