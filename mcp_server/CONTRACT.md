@@ -8,7 +8,7 @@ This file is the contract a client can rely on. The design and pre-registration 
 | | |
 |---|---|
 | Server name | `equip-docs-rag` |
-| Transport | stdio, started with `uv run python -m mcp_server` |
+| Transport | stdio, started with `uv run python -m mcp_server`; and streamable HTTP at `POST /mcp` on the API (see [HTTP transport](#http-transport-mcp)) |
 | Tools | `search_safety_docs` and `lookup_document_metadata` |
 | Annotations (both tools) | `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false` |
 
@@ -159,6 +159,31 @@ Example, for an unknown id:
 ```text
 isError: true
 Error executing tool lookup_document_metadata: {"code": "unknown_source_doc_id", "message": "no document 'not-a-doc' in the manifest", "source_doc_id": "not-a-doc"}
+```
+
+## HTTP transport (`/mcp`)
+
+The API serves the same server at `POST /mcp` (streamable HTTP), on the same FastAPI app as `/ask`. The tools,
+schemas and error contract are identical to stdio.
+
+- **Stateless, with JSON responses.** Each POST gets one `application/json` response. There are no sessions and
+  no server-sent event stream. A client must accept `application/json`; the SDK's clients send
+  `Accept: application/json, text/event-stream`. Without it, the server answers `406`.
+- **Host allow-list.** DNS-rebinding protection is on. The `Host` header must be the deployed host
+  (`equip-docs-rag-api.onrender.com`), or `localhost` / `127.0.0.1` with a port; any other host gets `421`.
+  Browser origins are limited to `http://localhost:*` and `http://127.0.0.1:*`. Requests without an `Origin`
+  header, which is every non-browser client, are accepted.
+- **No authentication.** The tools are read-only, and a search costs one embedding call — the same exposure
+  class as `/ask`.
+
+Against a local API (`uv run uvicorn api.main:app`):
+
+```bash
+curl -s -X POST http://localhost:8000/mcp \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+uv run python scripts/mcp_client_probe.py http://localhost:8000/mcp       # initialize + tools/list over HTTP
+npx -y @modelcontextprotocol/inspector@2.8.0 --cli --transport http --server-url http://localhost:8000/mcp --method tools/list --format json
 ```
 
 ## Running it

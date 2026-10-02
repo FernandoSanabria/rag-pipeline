@@ -121,7 +121,7 @@ No source PDF is ever committed, in either tier; provenance (publisher, license,
 
 ## MCP server
 
-An MCP server ([`mcp_server/`](mcp_server/CONTRACT.md)) exposes the corpus to external MCP clients as two read-only tools: `search_safety_docs` (the same dense retrieval the pipeline uses) and `lookup_document_metadata`. **Search results carry full chunk text for both tiers, with provenance on every result — title, publisher, page, tier and license.** Run it over stdio with `uv run python -m mcp_server`; the schemas, the licensing policy, the error contract and client setup are in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
+An MCP server ([`mcp_server/`](mcp_server/CONTRACT.md)) exposes the corpus to external MCP clients as two read-only tools: `search_safety_docs` (the same dense retrieval the pipeline uses) and `lookup_document_metadata`. **Search results carry full chunk text for both tiers, with provenance on every result — title, publisher, page, tier and license.** Run it over stdio with `uv run python -m mcp_server`; the API also serves it over streamable HTTP at `POST /mcp`. The schemas, the licensing policy, the error contract and client setup are in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
 
 ## Setup
 

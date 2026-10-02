@@ -11,12 +11,15 @@ run-name: ${{ github.event.inputs.simulate_failure == 'true' && 'post-deploy-wir
 # the signature of "the image doesn't contain the code" — but a hard code must PERSIST (rule out a
 # straggler deploy still serving the old image) before we fail. Post-merge only: it runs after the merge
 # that triggers it and therefore cannot gate that merge, so it is deliberately NOT a required check.
+# /mcp (the G5 MCP server) adds two more hard codes, 406 (Accept negotiation) and 421 (Host allow-list):
+# deterministic transport-config signatures, never transient. They share the same persistence gate.
 #
 # NEGATIVE PROOF: a deliberate `workflow_dispatch` run with `simulate_failure: true` exists in this
 # workflow's Actions history (first run ~2026-08-09), intentionally red-by-design. It asserts the two
 # intolerant paths (persistent-hard 404/500 and shape-mismatch) genuinely fail the job rather than being
 # swallowed by the retry logic. That red entry is evidence for the discipline, not a broken pipeline — the
-# run is named "SIMULATED FAILURE" and its ::error:: lines are prefixed "SIMULATED —".
+# run is named "SIMULATED FAILURE" and its ::error:: lines are prefixed "SIMULATED —". Since G5 it also asserts
+# the /mcp 406 path (initialize without an Accept header).
 
 on:
   push:
@@ -25,6 +28,7 @@ on:
       - "src/**"
       - "api/**"
       - "agent/**"
+      - "mcp_server/**"
       - "Dockerfile"
       - "render.yaml"
       - "pyproject.toml"
@@ -53,29 +57,30 @@ jobs:
         run: |
           set -uo pipefail
 
-          # Map an HTTP code to an action. 200=ok; 404/500=hard (the bug); everything else (000 timeout/
-          # conn, 502, 503) = retry (cold start or deploy in progress).
-          classify() { case "$1" in 200) echo ok;; 404|500) echo hard;; *) echo retry;; esac; }
+          # Map an HTTP code to an action. 200=ok; 404/500=hard (the bug); 406/421=hard (the /mcp transport's
+          # config signatures: Accept negotiation, Host allow-list); everything else (000 timeout/conn, 502,
+          # 503) = retry (cold start or deploy in progress).
+          classify() { case "$1" in 200) echo ok;; 404|406|421|500) echo hard;; *) echo retry;; esac; }
 
-          # hit METHOD PATH [JSON] -> prints the body, then a final line with the HTTP status code.
+          # hit METHOD PATH [JSON] [ACCEPT] -> prints the body, then a final line with the HTTP status code.
           hit() {
-            local m="$1" p="$2" d="${3:-}"
+            local m="$1" p="$2" d="${3:-}" a="${4:-}"
             if [ "$m" = GET ]; then
               curl -s -m 90 -w $'\n%{http_code}' "$BASE$p" 2>/dev/null || printf '\n000'
             else
-              curl -s -m 90 -X POST -H 'content-type: application/json' -d "$d" -w $'\n%{http_code}' "$BASE$p" 2>/dev/null || printf '\n000'
+              curl -s -m 90 -X POST -H 'content-type: application/json' ${a:+-H "accept: $a"} -d "$d" -w $'\n%{http_code}' "$BASE$p" 2>/dev/null || printf '\n000'
             fi
           }
 
-          # poll METHOD PATH JSON SHAPE [BUDGET] -> 0 on 200+shape; 1 when a hard code persists or budget expires.
+          # poll METHOD PATH JSON SHAPE [BUDGET] [ACCEPT] -> 0 on 200+shape; 1 when a hard code persists or budget expires.
           # SHAPE is a jq filter that must be truthy (empty = 200 is enough). ${ERR_PREFIX:-} lets the negative
           # proof label its ::error:: as SIMULATED without poll needing to know it's a simulation.
           poll() {
-            local m="$1" p="$2" d="$3" shape="$4" budget="${5:-$BUDGET_SECS}"
+            local m="$1" p="$2" d="$3" shape="$4" budget="${5:-$BUDGET_SECS}" a="${6:-}"
             local deadline=$(( $(date +%s) + budget )) streak=0
             while :; do
               local out code body kind
-              out="$(hit "$m" "$p" "$d")"
+              out="$(hit "$m" "$p" "$d" "$a")"
               code="$(printf '%s' "$out" | tail -n1)"
               body="$(printf '%s' "$out" | sed '$d')"
               kind="$(classify "$code")"
@@ -101,7 +106,11 @@ jobs:
             done
           }
 
-          # --- NEGATIVE PROOF (dispatch-only): assert BOTH intolerant paths fail the job, then red on purpose.
+          # The G5 MCP server's initialize request (protocol 2025-11-25) and the Accept header its transport requires.
+          MCP_INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"wire-smoke","version":"1"}}}'
+          MCP_ACCEPT='application/json, text/event-stream'
+
+          # --- NEGATIVE PROOF (dispatch-only): assert the intolerant paths fail the job, then red on purpose.
           # Real deploys never reach this (simulate_failure defaults false). Runs before the initial delay.
           if [ "${SIMULATE_FAILURE:-false}" = "true" ]; then
             export ERR_PREFIX="SIMULATED — "
@@ -121,7 +130,12 @@ jobs:
             [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — persistent-hard branch returned 0 on a permanent 404; the hard path does not fail"; exit 1; }
             echo "  persistent-hard path returned non-zero as required (rc=$rc)"
 
-            echo "::error::SIMULATED FAILURE (negative proof): both intolerant paths went red as required; failing the job intentionally"
+            echo "-- MCP negotiation path: /mcp initialize WITHOUT the Accept header -> 406 must classify hard and fail --"
+            rc=0; ( poll POST /mcp "$MCP_INIT" '' 90 ) || rc=$?
+            [ "$rc" -ne 0 ] || { echo "::error::SIMULATED — /mcp without an Accept header returned 0; the 406 path does not fail"; exit 1; }
+            echo "  MCP 406 path returned non-zero as required (rc=$rc)"
+
+            echo "::error::SIMULATED FAILURE (negative proof): all three intolerant paths went red as required; failing the job intentionally"
             exit 1
           fi
 
@@ -154,4 +168,7 @@ jobs:
           echo '== POST /ask/agent -> 200 + has(answer, route) =='
           poll POST /ask/agent '{"question":"flash point of acetone per the Sigma-Aldrich SDS?"}' 'has("answer") and has("route")' || exit 1
 
-          echo "All routes green: the deployed artifact serves /health, /ask, and /ask/agent."
+          echo '== POST /mcp initialize -> 200 + serverInfo.name (the G5 MCP server, streamable HTTP) =='
+          poll POST /mcp "$MCP_INIT" '.result.serverInfo.name == "equip-docs-rag"' "$BUDGET_SECS" "$MCP_ACCEPT" || exit 1
+
+          echo "All routes green: the deployed artifact serves /health, /ask, /ask/agent, and /mcp."

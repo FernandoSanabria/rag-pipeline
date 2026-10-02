@@ -30,7 +30,9 @@ COPY src/ ./src/
 COPY api/ ./api/
 COPY agent/ ./agent/
 # mcp_server/ is the G5 MCP server package (mcp_server/CONTRACT.md). Like every top-level package here it needs
-# its own COPY: the pyproject wheel `packages` list does not apply to this image.
+# its own COPY: the pyproject wheel `packages` list does not apply to this image. api/main.py imports it at
+# startup to serve /mcp, so omitting it crashes uvicorn on boot; the post-deploy wire-smoke's /mcp probe then
+# fails loudly, instead of the platform silently serving the last healthy image.
 COPY mcp_server/ ./mcp_server/
 COPY data/manifest.json ./data/manifest.json
 

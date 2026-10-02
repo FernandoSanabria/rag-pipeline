@@ -18,6 +18,7 @@ from typing import Annotated, Literal
 import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -43,7 +44,23 @@ INSTRUCTIONS = (
     "provenance."
 )
 
-mcp = FastMCP(SERVER_NAME, instructions=INSTRUCTIONS)
+# HTTP settings, used only when the API serves /mcp (stdio ignores them):
+# - stateless, with plain-JSON responses: one JSON body per POST and no session affinity (the free-tier
+#   instance restarts), so a curl + jq probe can check it;
+# - DNS-rebinding protection with an explicit Host allow-list: by default FastMCP allows only localhost, and the
+#   deployed service's Host header would get a 421.
+ALLOWED_HOSTS = ["equip-docs-rag-api.onrender.com", "localhost:*", "127.0.0.1:*"]
+ALLOWED_ORIGINS = ["http://localhost:*", "http://127.0.0.1:*"]
+
+mcp = FastMCP(
+    SERVER_NAME,
+    instructions=INSTRUCTIONS,
+    stateless_http=True,
+    json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True, allowed_hosts=ALLOWED_HOSTS, allowed_origins=ALLOWED_ORIGINS
+    ),
+)
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
 

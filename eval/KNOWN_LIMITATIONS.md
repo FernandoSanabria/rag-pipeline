@@ -114,5 +114,7 @@ measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
 - **CI cannot see a missing `COPY`.** CI's `docker build` never starts the app, so a package the API imports
   but the image lacks fails only at container start (the original 404 incident). A candidate fix is an
   in-image import step in CI.
-- **P5 (an external client against the deployed service) is NOT TESTED:** this entry's commit ships the stdio
-  transport only.
+- **`/mcp` has no authentication.** The tools are read-only and a search costs one embedding call — the same
+  exposure class as `/ask` — so none was added; recorded as a follow-on.
+- **P5 (an external client against the deployed `/mcp`) is pending.** The HTTP transport ships in the same PR as
+  this entry and can only be verified live after the merge deploys it; until then P5 is NOT TESTED.

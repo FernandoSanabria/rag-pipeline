@@ -71,7 +71,8 @@ phase0/
 - **[`agent/`](agent/graph.py)** — the LangGraph layer; every node wraps an existing `src/`
   capability and reimplements nothing. `graph.py` (compiled graph + the `ask()` entry adapter),
   `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools).
-- **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`),
+- **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
+  `POST /mcp`, the G5 MCP server over streamable HTTP),
   `citations.py`, `confidence.py`, `schemas.py`.
 - **[`mcp_server/`](mcp_server/CONTRACT.md)** — the G5 MCP server (`search_safety_docs`,
   `lookup_document_metadata`); it calls `src.retrieve.dense_search` and the G1 metadata tool and
@@ -241,7 +242,7 @@ and [`scripts/README.md`](scripts/README.md); the canonical, fuller versions liv
 ```bash
 uv sync --dev                 # create the venv, install pinned deps, editable-install the project
 uv run pytest -q              # the hermetic test suite (no secrets, no network)
-uv run uvicorn api.main:app   # serve the API locally (GET /health, POST /ask, POST /ask/agent)
+uv run uvicorn api.main:app   # serve the API locally (GET /health, POST /ask, POST /ask/agent, POST /mcp)
 
 uv run python eval/run_eval.py               # evaluate the shipped v4 path over the 28-row set
 PIPELINE=agent uv run python eval/run_eval.py # evaluate the LangGraph agent path instead
