@@ -29,6 +29,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ ./src/
 COPY api/ ./api/
 COPY agent/ ./agent/
+# mcp_server/ is the G5 MCP server package (mcp_server/CONTRACT.md). Like every top-level package here it needs
+# its own COPY: the pyproject wheel `packages` list does not apply to this image.
+COPY mcp_server/ ./mcp_server/
 COPY data/manifest.json ./data/manifest.json
 
 # 3) Drop privileges.

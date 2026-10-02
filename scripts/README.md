@@ -15,6 +15,8 @@ uv run python scripts/<name>.py
 | `extract_pages.py` | Dumps per-page, NFKC-normalized text for every `data/manifest.json` doc into `scratchpad/pages/<doc_id>.txt` (with `===== <doc_id> PAGE n/N =====` markers). |
 | `verify_eval_tokens.py` | Checks that each eval candidate's `key_value_token` actually appears on its cited page. Reads the dumps from `extract_pages.py`. Usage: `uv run python scripts/verify_eval_tokens.py <candidates.json>`. |
 | `enrich_eval.py` | Turns a raw `run_eval.py` output into a versioned metrics-history record (`eval/results/<prefix>_<ts>.json`, gitignored) + report: dual-model provenance, per-category aggregates, Δ vs a chosen baseline, a 3-way refusal-integrity audit (exact / near-miss / attempt), per-row correctness diff, and an optional prediction check. Reused each optimization round (v3/v4/…). See `--help` for args. |
+| `mcp_client_probe.py` | Minimal MCP client for the G5 server (≤40 lines): initialize, list the tools, optionally call one; prints one JSON document. stdio by default (`uv run python scripts/mcp_client_probe.py [TOOL ARGS_JSON]`), or pass a URL first for streamable HTTP. Used for P1/P4/P5 in `eval/g5_PREDICTION.md`. |
+| `mcp_parity_probe.py` | G5 P2/P3: for the five pre-registered queries at k=10, compares MCP `search_safety_docs` (stdio) with a direct `dense_search` (plus a direct-vs-direct control) and checks every result's provenance against the manifest. Prints ids, pages and counts only — never chunk text. ~15 embedding calls. |
 
 ## Notes
 - `extract_pages.py` writes to `scratchpad/`, which is **gitignored** — the dumps are regenerable on
