@@ -138,6 +138,10 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
   GOING FORWARD: replicate each config 2–3×, RECORDING each replicate's fingerprint; note that
   back-to-back replicates may share a fingerprint and understate cross-run drift, so space them (or
   at minimum tag by fingerprint so you know whether replicates actually spanned a drift).
+  - text-embedding-3-small is not bit-reproducible: N=5 embeddings of one query produced 4 identical
+    vectors and 1 differing by up to 9.2e-05 per component, enough to swap two chunks 8e-06 apart in
+    score. Near-tied ranks can differ between identical calls. Recorded 2026-10-02, from the G5 P2
+    post-hoc check; no pipeline effect measured.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the

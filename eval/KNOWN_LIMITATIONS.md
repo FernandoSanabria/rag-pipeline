@@ -93,3 +93,26 @@ commit `e0de6ec`, G1-closure block in `eval/METRICS_HISTORY.md`). **No promotion
   `<!-- regenerate: uv run python scripts/render_graph.py -->` marker, but the script's output is **not**
   what is committed (the edge labels are hand-curated; the script emits `<p>`/`&nbsp;`/unlabeled edges).
   Either make the script emit the labels or change the marker.
+
+## G5 MCP server — what it is and is not shown to do
+Recorded 2026-10-02 from the G5 build: the design is `eval/g5_design.md`; the pre-registration and its
+outcomes are in [`g5_PREDICTION.md`](g5_PREDICTION.md), whose pre-registration commit is tagged `prereg/g5` at
+PR time. The server's contract is [`mcp_server/CONTRACT.md`](../mcp_server/CONTRACT.md).
+
+**Shown (stdio, pre-registered):** P1 discovery, P3 provenance on every row and P4 structured error paths
+HOLD. **P2 live parity is FALSIFIED** on one of five queries — see the Outcome section of
+[`g5_PREDICTION.md`](g5_PREDICTION.md). P2 fell to embedding non-reproducibility on a near-tied pair; the
+measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
+
+**Not shown or deferred (backlog, not fixed):**
+- **`ask_safety_question`** — an MCP tool wrapping `src.pipeline` — is deferred; the spec is two tools.
+- **The G1 convert / compare tools are not exported.** They produce computed values, and exporting them needs
+  results of `kind: "computed"` that carry their own attribution — the G1 misattribution above is what
+  happens without it.
+- **`controls-hazardous-energies`: the public-domain label is unverified** (state agency work; the federal PD
+  rule does not apply); MCP reports labels verbatim and does not certify them.
+- **CI cannot see a missing `COPY`.** CI's `docker build` never starts the app, so a package the API imports
+  but the image lacks fails only at container start (the original 404 incident). A candidate fix is an
+  in-image import step in CI.
+- **P5 (an external client against the deployed service) is NOT TESTED:** this entry's commit ships the stdio
+  transport only.

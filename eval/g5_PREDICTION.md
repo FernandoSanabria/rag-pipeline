@@ -87,3 +87,72 @@ Every case returns zero rows.
 
 If the HTTP step (C4) is severed into its own PR at GATE 2, P5 moves to that PR's pre-registration and is
 NOT TESTED here.
+
+## Outcome — P1–P4 (stdio), recorded 2026-10-02
+
+Run over stdio against the commit that added `mcp_server/`, and scored against the predictions above, which are
+unchanged. The transcripts were pasted at the gate review and are not committed, because they contain tier-2
+chunk text; this section records ids, pages and counts only.
+
+| | Verdict | Basis |
+|---|---|---|
+| P1 | **HOLDS** | Both clients list exactly 2 tools; the four-field `tools[]` JSON is byte-identical. |
+| P2 | **FALSIFIED** | Row 4's MCP sequence differs from the direct call at index 6. |
+| P3 | **HOLDS** | 50 rows, 0 violations, both tiers present. |
+| P4 | **HOLDS** | Both error codes in both clients, `isError: true`, zero rows, no traceback in any client-received result. |
+| P5 | **NOT TESTED** here | It needs the HTTP transport deployed, which follows the merge. |
+
+### P1 — HOLDS
+
+The Inspector CLI (2.8.0) and `scripts/mcp_client_probe.py` each list exactly `search_safety_docs` and
+`lookup_document_metadata`. Normalized to the four pre-registered fields (name, inputSchema, outputSchema,
+annotations) with keys sorted, the two JSON documents are byte-identical (4,516 bytes each; empty diff). For
+information only: the full `tools[]` entries, descriptions included, are byte-identical too.
+
+### P2 — FALSIFIED
+
+`scripts/mcp_parity_probe.py`, k=10, the five queries above:
+
+| row | filter | n MCP/direct | MCP == direct | control: direct == direct |
+|---|---|---|---|---|
+| 1 | — | 10/10 | True | True |
+| 16 | — | 10/10 | True | True |
+| 21 | — | 10/10 | True | True |
+| 4 | — | 10/10 | **False** | True |
+| 25 | `sds-sigma-aldrich-acetone` | 10/10 | True | True |
+
+The first difference on row 4, verbatim from the probe:
+`index 6: ('fisher-667-actuator', 14) vs ('fisher-667-actuator', 17) (text equal: False)`.
+
+The control: row 4's two direct calls matched each other, so the pre-registered attribution rule (attribute to
+embedding non-determinism when the two direct calls also differ) does not apply. The verdict is FALSIFIED.
+
+**Post-hoc, not part of the verdict.** Five embeddings of the row-4 query in one process produced 4 identical
+vectors and 1 differing by up to 9.2e-05 per component. Ranks 7 and 8 score 0.578180 vs 0.578172, a gap of
+8.0e-06, and the differing vector swaps them. In the parity run, the MCP call got the common order and both
+direct calls got the rarer one. The measurement is recorded in the ledger's methodology block
+([`METRICS_HISTORY.md`](METRICS_HISTORY.md)).
+
+**Design critique — by the reviewer, who authored this pre-registration.** The n=2 control had no power against
+a ~1-in-5 event and passed by coincidence. The property P2 was meant to establish — that the MCP layer passes
+`(query, k, source_doc_id)` through unchanged — is shown deterministically by hermetic test 5
+(`tests/test_mcp_server.py`); the live parity test conflated layer transparency with backend reproducibility.
+
+### P3 — HOLDS
+
+Over the P2 MCP transcript: 50 rows (5 × 10) and 0 violations. Every row has non-empty text,
+`kind == "document"`, and tier, license, title and publisher equal to the manifest; no title is a filename or
+ends in `.pdf`. Both tiers are present.
+
+### P4 — HOLDS
+
+In both clients:
+- `lookup_document_metadata("not-a-doc")` and `search_safety_docs` filtered to `"not-a-doc"` return
+  `isError: true` with code `unknown_source_doc_id`;
+- with the server launched with `PINECONE_API_KEY=invalid`, a search returns `isError: true` with code
+  `retrieval_failed` and the message "retrieval raised UnauthorizedError; no results are returned".
+
+Every case returned zero rows, and no client-received result contained a traceback. The falsifier is "text the
+client sees" in the MCP result. The server's stderr is the operator channel (CONTRACT.md, "Error contract"):
+under stdio, a client that forwards that stream shows the server's log, tracebacks included, by design. A grep
+of that log from the forced-failure runs found neither the key value nor any Authorization header.

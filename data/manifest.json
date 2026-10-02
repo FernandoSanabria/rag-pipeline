@@ -1,9 +1,9 @@
 {
-  "_README": "Provenance + licensing source-of-truth for the Phase 1 RAG corpus. MANUAL VERIFICATION REQUIRED before trusting this file. Fields you MUST verify by hand: 'source_url' (all set to TODO_VERIFY — never auto-generated), 'license' and 'tier' (the public/ vs raw/ folder split is a guess, not proof), and any 'title' with a 'notes' flag (filename typos/sanitization). 'document' citations in the API should render from 'title', not from the raw filename.",
+  "_README": "Provenance + licensing source-of-truth for the Phase 1 RAG corpus. MANUAL VERIFICATION REQUIRED before trusting this file. Fields you MUST verify by hand: 'source_url' (all set to TODO_VERIFY — never auto-generated), 'license' and 'tier' (the public/ vs raw/ folder split is a guess, not proof), and any 'title' with a 'notes' flag (filename typos/sanitization). 'document' citations in the API should render from 'title', not from the raw filename. 2026-10-02: Tier-2 raw PDFs remain uncommitted (gitignored). Chunk-level text of all tiers IS served through the retrieval surfaces (MCP search_safety_docs) for evaluation and demonstration. This reverses the earlier no-redistribution stance; the decision is the owner's.",
   "_verification_checklist": [
     "Fill every source_url with the exact canonical page you downloaded from.",
     "Confirm each tier-1 item is genuinely US-government public domain (OSHA/NIOSH/EPA).",
-    "Confirm each tier-2 item is vendor-copyrighted and must stay gitignored (not redistributed).",
+    "Confirm each tier-2 item is vendor-copyrighted and must stay gitignored (not redistributed — superseded for chunk text by the 2026-10-02 _README entry).",
     "Resolve 'controls-hazardous-energies' — identify the actual publisher/source; it overlaps 1910.147.",
     "Fix flagged filename issues: 'Chlorin'->Chlorine, 'Nutrient'->likely 'Nutrien', colons in Fisher filenames."
   ],
