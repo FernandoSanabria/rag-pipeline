@@ -138,7 +138,9 @@ Every tool error is a `CallToolResult` with **`isError: true`** and one text blo
 
 - When the server raises an error, `<detail>` is a JSON object: `{"code": "…", "message": "…", …}`. The tool
   bodies catch every exception, so no raw exception text or traceback reaches the client. The full exception
-  is written to the server's log on stderr.
+  is written to the server's log on stderr. Under stdio, a client that forwards the server's stderr (the MCP
+  Inspector CLI and the SDK's `stdio_client` both do) shows that log in its terminal, tracebacks included;
+  this is by design — stderr is the operator channel, not part of the MCP result.
 - When a request violates the input schema (for example `k` above the cap, a query shorter than 3 characters,
   or a missing field), the SDK rejects it before the tool runs. In that case `<detail>` is the SDK's
   validation message.
