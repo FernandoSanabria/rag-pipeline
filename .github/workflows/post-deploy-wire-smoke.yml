@@ -62,6 +62,10 @@ jobs:
           # 503) = retry (cold start or deploy in progress).
           classify() { case "$1" in 200) echo ok;; 404|406|421|500) echo hard;; *) echo retry;; esac; }
 
+          # The cause a persistent hard code names: 406/421 = the /mcp transport is misconfigured; 404/500 = the
+          # deployed image lacks the route.
+          hard_cause() { case "$1" in 406|421) echo "/mcp transport is misconfigured (406: Accept negotiation; 421: Host allow-list)";; *) echo "the deployed image does not serve this route";; esac; }
+
           # hit METHOD PATH [JSON] [ACCEPT] -> prints the body, then a final line with the HTTP status code.
           hit() {
             local m="$1" p="$2" d="${3:-}" a="${4:-}"
@@ -92,7 +96,7 @@ jobs:
                 hard)
                   streak=$(( streak + 1 ))
                   if [ "$streak" -ge "$HARD_STREAK" ]; then
-                    echo "  ::error::${ERR_PREFIX:-}$m $p returned $code on $streak consecutive checks — the deployed image does not serve this route"
+                    echo "  ::error::${ERR_PREFIX:-}$m $p returned $code on $streak consecutive checks — $(hard_cause "$code")"
                     return 1
                   fi
                   echo "  hard $code ($streak/$HARD_STREAK) — re-checking to rule out a straggler deploy" ;;

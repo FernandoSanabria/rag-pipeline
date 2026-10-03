@@ -33,6 +33,10 @@ answer actually grounds on, or reconcile inline ↔ array. Not done now; `citati
 Because the answer and its inline attribution are correct, this is a provenance-surface cleanup, not
 a ship-blocker or a promotion concern.
 
+Near-empty table-of-contents chunks can outrank content: the G5 tier-1 demo query's rank-1 hit was a
+47-character ToC fragment (controls-hazardous-energies p3). Observed 2026-10-02 via search_safety_docs; not
+measured on the frozen 28; chunking backlog, not G5.
+
 ## G1 tool loop — what it is and is not shown to do
 Recorded 2026-09-23 from the G1 closure (`eval/g1_closure_probe.md`, `eval/g1_closure_PREDICTION.md`
 commit `e0de6ec`, G1-closure block in `eval/METRICS_HISTORY.md`). **No promotion decision is at stake:**

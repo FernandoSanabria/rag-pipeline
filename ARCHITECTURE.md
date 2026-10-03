@@ -73,7 +73,10 @@ phase0/
   `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools).
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
   `POST /mcp`, the G5 MCP server over streamable HTTP),
-  `citations.py`, `confidence.py`, `schemas.py`.
+  `citations.py`, `confidence.py`, `schemas.py`. `agent.graph` is imported lazily, so an agent-side import
+  failure can break only `/ask/agent`; `api.main` imports `mcp_server` eagerly (a route must exist at startup),
+  which constructs `Settings` at import and therefore requires both API keys to be present before
+  `import api.main` — every existing entry point already supplies them.
 - **[`mcp_server/`](mcp_server/CONTRACT.md)** — the G5 MCP server (`search_safety_docs`,
   `lookup_document_metadata`); it calls `src.retrieve.dense_search` and the G1 metadata tool and
   reimplements nothing. Schemas, licensing policy and error contract: [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
