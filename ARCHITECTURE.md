@@ -53,6 +53,7 @@ phase0/
 ├── src/        # the frozen v4 runtime pipeline (retrieve → generate)
 ├── agent/      # LangGraph orchestration layer (the /ask/agent path)
 ├── api/        # FastAPI service wrapping both paths
+├── mcp_server/ # G5 MCP server: two read-only tools over the corpus (contract: mcp_server/CONTRACT.md)
 ├── eval/       # the evaluation harness, datasets, the metrics ledger, design/result docs
 ├── scripts/    # developer tooling + read-only probes (NOT runtime, NOT the harness)
 ├── data/       # corpus PDFs (gitignored) + committed manifest.json (provenance)
@@ -70,8 +71,15 @@ phase0/
 - **[`agent/`](agent/graph.py)** — the LangGraph layer; every node wraps an existing `src/`
   capability and reimplements nothing. `graph.py` (compiled graph + the `ask()` entry adapter),
   `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools).
-- **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`),
-  `citations.py`, `confidence.py`, `schemas.py`.
+- **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
+  `POST /mcp`, the G5 MCP server over streamable HTTP),
+  `citations.py`, `confidence.py`, `schemas.py`. `agent.graph` is imported lazily, so an agent-side import
+  failure can break only `/ask/agent`; `api.main` imports `mcp_server` eagerly (a route must exist at startup),
+  which constructs `Settings` at import and therefore requires both API keys to be present before
+  `import api.main` — every existing entry point already supplies them.
+- **[`mcp_server/`](mcp_server/CONTRACT.md)** — the G5 MCP server (`search_safety_docs`,
+  `lookup_document_metadata`); it calls `src.retrieve.dense_search` and the G1 metadata tool and
+  reimplements nothing. Schemas, licensing policy and error contract: [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
 - **[`eval/`](eval/run_eval.py)** — `run_eval.py` (the harness), `dataset.jsonl` (28 frozen rows),
   `capability_set.jsonl` (the tool-capability set — rows/provenance in that file; not comparable to the
   frozen 28), `results/` (gitignored per-run JSON), and
@@ -179,9 +187,11 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     in the G1-closure rows of [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md) and the G1 section of
     [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md) — this file does not carry a result the
     ledger owns.
-  - **G5 = an MCP server** re-exporting the tools. `agent/tools.py` is deliberately kept dependency-
-    light (no LangChain/LangGraph imports) *so that a future MCP server can re-export the functions
-    directly* — see the module docstring in [`agent/tools.py`](agent/tools.py).
+  - **G5 = the MCP server** ([`mcp_server/`](mcp_server/CONTRACT.md)). Built; it re-exports the G1
+    metadata tool straight from the deliberately dependency-light [`agent/tools.py`](agent/tools.py).
+    Contract in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md); design, pre-registration and
+    outcomes in [`eval/g5_design.md`](eval/g5_design.md) and [`eval/g5_PREDICTION.md`](eval/g5_PREDICTION.md)
+    — this file does not carry a result those files own.
   - **G10b = a checkpointer + human-approval gate.** Not built; **pre-designed** in
     [`eval/replay_safety_design.md`](eval/replay_safety_design.md) (interrupt/resume, one-thread-per-
     question isolation, the persistence hazard on a no-persistent-disk host).
@@ -223,7 +233,9 @@ this section explains the *why* and points there.
   secrets, no network); then a `docker build` (no push) to catch a broken Dockerfile. Two companion
   workflows: a keepalive ping (fights free-tier spin-down) and a post-deploy wire-smoke (polls the
   live service after a deploy). **Note:** once this file is committed, its own relative links enter
-  the doc-guard's scope — keep them few and correct.
+  the doc-guard's scope — keep them few and correct. Cited hashes must be reachable from `main` or from
+  a `prereg/*` tag: PRs are squash-merged, so each pre-registration commit gets an annotated
+  `prereg/<gate>` tag (e.g. `prereg/g1-closure`) that keeps it resolvable once its branch is gone.
 
 ## 8. Quick start
 
@@ -233,7 +245,7 @@ and [`scripts/README.md`](scripts/README.md); the canonical, fuller versions liv
 ```bash
 uv sync --dev                 # create the venv, install pinned deps, editable-install the project
 uv run pytest -q              # the hermetic test suite (no secrets, no network)
-uv run uvicorn api.main:app   # serve the API locally (GET /health, POST /ask, POST /ask/agent)
+uv run uvicorn api.main:app   # serve the API locally (GET /health, POST /ask, POST /ask/agent, POST /mcp)
 
 uv run python eval/run_eval.py               # evaluate the shipped v4 path over the 28-row set
 PIPELINE=agent uv run python eval/run_eval.py # evaluate the LangGraph agent path instead

@@ -114,10 +114,14 @@ graph TD;
 
 **19 documents** in two licensing tiers — a deliberate IP decision recorded per-document in [`data/manifest.json`](data/manifest.json):
 
-- **Tier 1 (10 docs) — public-domain government/agency sources**, committed under `data/public/`: OSHA regulations (1910.119 PSM, 1910.147 lockout/tagout, 1910.1000 air contaminants) and Technical Manual chapters, EPA Risk Management Program guidance, NIOSH publications (including the NIOSH Pocket Guide to Chemical Hazards), and a state-agency lockout/tagout guide.
+- **Tier 1 (10 docs) — public-domain government/agency sources**, kept under `data/public/` in a working copy, never committed (`.gitignore`: `data/**/*.pdf`): OSHA regulations (1910.119 PSM, 1910.147 lockout/tagout, 1910.1000 air contaminants) and Technical Manual chapters, EPA Risk Management Program guidance, NIOSH publications (including the NIOSH Pocket Guide to Chemical Hazards), and a state-agency lockout/tagout guide.
 - **Tier 2 (9 docs) — vendor-copyrighted sources**, whose raw PDFs stay **gitignored** under `data/raw/`: chemical SDS and equipment manuals from Airgas, Emerson (Fisher / Micro Motion), Flowserve, Nutrien, Sigma-Aldrich, Atlas Copco, and Fisher Scientific.
 
-The copyrighted PDFs are never committed or redistributed — only their provenance (publisher, license, tier, page-level citation data) lives in the manifest, and final-answer citations render from the manifest **title**, never a raw filename.
+No source PDF is ever committed, in either tier; provenance (publisher, license, tier, page-level citation data) lives in the manifest. Chunk-level text of **both** tiers is served by the MCP `search_safety_docs` tool, and every result carries its document's `tier` and `license` — the owner's decision, dated in the manifest `_README`. Final-answer citations still render from the manifest **title**, never a raw filename.
+
+## MCP server
+
+An MCP server ([`mcp_server/`](mcp_server/CONTRACT.md)) exposes the corpus to external MCP clients as two read-only tools: `search_safety_docs` (the same dense retrieval the pipeline uses) and `lookup_document_metadata`. **Search results carry full chunk text for both tiers, with provenance on every result — title, publisher, page, tier and license.** Run it over stdio with `uv run python -m mcp_server`; the API also serves it over streamable HTTP at `POST /mcp`. The schemas, the licensing policy, the error contract and client setup are in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
 
 ## Setup
 

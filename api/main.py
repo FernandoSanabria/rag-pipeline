@@ -8,6 +8,7 @@ Endpoints:
   GET  /health    -> {"status": "ok"}
   POST /ask       -> AskResponse {answer, citations, confidence_score, confidence_basis}
   POST /ask/agent -> AgentAskResponse (the above + route/source_doc_id/routing_reason)
+  POST /mcp       -> the G5 MCP server over streamable HTTP (stateless, JSON responses; mcp_server/CONTRACT.md)
 
 `/ask` serves the frozen v4 pipeline (no router). `/ask/agent` serves the LangGraph agent, which adds
 a gpt-4o-mini router call (~1 s, ~$0.0001) to EVERY request — INCLUDING the ~85% of questions that
@@ -22,6 +23,8 @@ unanswerable question returns HTTP 200 with the refusal answer, LOW confidence, 
 the service never errors a legitimate question it simply cannot answer.
 """
 
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
@@ -33,12 +36,27 @@ load_dotenv()
 from api.citations import derive_citations  # noqa: E402
 from api.confidence import score_confidence  # noqa: E402
 from api.schemas import AgentAskResponse, AskRequest, AskResponse  # noqa: E402
+from mcp_server.server import mcp  # noqa: E402
 from src.pipeline import ask  # noqa: E402
 
 # NOTE: `agent.graph` is imported LAZILY inside ask_question_agent (not at module load) so the shipped
 # /ask path — and the whole app's startup — can never be coupled to the agent layer's import health.
 # An agent-side import problem then degrades to a 500 on /ask/agent ALONE, never a boot crash that
 # takes /ask down with it (which is exactly what a missing agent/ package once did to the deploy).
+#
+# The MCP server, by contrast, is imported EAGERLY: /mcp is a route, and a route has to exist at startup. If the
+# image lacks mcp_server/, the new image fails on boot, the platform keeps serving the previous image (so /ask
+# stays up), and /mcp 404s, which the post-deploy wire-smoke treats as a hard failure.
+_mcp_http = mcp.streamable_http_app()  # builds the SDK's session manager and its /mcp route
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # /mcp requests need the SDK session manager's task group. A sub-app's own lifespan never runs once its
+    # routes are added to this app, so it runs here; it can run only once per process.
+    async with mcp.session_manager.run():
+        yield
+
 
 app = FastAPI(
     title="Industrial-equipment-safety RAG API",
@@ -48,7 +66,12 @@ app = FastAPI(
         "refusal-gated confidence signal."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
+
+# Exactly /mcp, as a Route on this app. A Mount would either redirect /mcp -> /mcp/ (Mount("/mcp")) or take over
+# FastAPI's JSON 404s (Mount("/")).
+app.router.routes.extend(_mcp_http.routes)
 
 
 @app.get("/health")
