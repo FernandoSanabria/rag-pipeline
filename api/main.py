@@ -1,21 +1,28 @@
 """FastAPI service wrapping the frozen RAG pipeline (`src.pipeline.ask`).
 
-Two derived layers sit on top of `ask()` without touching retrieval/generation:
+Three derived layers sit on top of `ask()` without touching retrieval/generation:
   - confidence : refusal-gated 2 tiers (`api.confidence`)
   - citations  : from retrieved-chunk metadata, deduped (`api.citations`)
+  - guards     : an input guard before the pipeline and an output guard after it (`api.guards`, G6)
 
 Endpoints:
   GET  /health    -> {"status": "ok"}
-  POST /ask       -> AskResponse {answer, citations, confidence_score, confidence_basis}
+  POST /ask       -> AskResponse {answer, citations, confidence_score, confidence_basis, guard}
   POST /ask/agent -> AgentAskResponse (the above + route/source_doc_id/routing_reason)
   POST /mcp       -> the G5 MCP server over streamable HTTP (stateless, JSON responses; mcp_server/CONTRACT.md)
+
+Both /ask endpoints pass through ONE wiring point, `_answer`. The input guard (injection rules, then one
+gpt-4o-mini classification, ~0.7 s, on every request; it fails closed) runs before the pipeline. The output guard
+(every figure in the answer must trace to the retrieved contexts or the question) runs in `_assemble`. A guard
+refusal is HTTP 200 with the category's fixed sentence, empty citations, LOW confidence, and `guard: {stage,
+reason}`. An allowed question reaches the pipeline unchanged. The MCP tools are not guarded (eval/g6_design.md).
 
 `/ask` serves the frozen v4 pipeline (no router). `/ask/agent` serves the LangGraph agent, which adds
 a gpt-4o-mini router call (~1 s, ~$0.0001) to EVERY request — INCLUDING the ~85% of questions that
 then route direct — to recover the handful of single-document rows (e.g. the acetone flash point "per
 the Sigma-Aldrich SDS"). So `/ask/agent` is the RICHER path (source-scoped routing + a routing_reason
 transparency payload) at a fixed per-request cost, NOT a strict upgrade: on a non-source-anchored
-question both endpoints serve the same answer and `/ask` pays nothing. It is not a drop-in replacement
+question both endpoints serve the same answer and `/ask` pays no router call. It is not a drop-in replacement
 for `/ask`.
 
 A malformed request (blank/over-length question) is rejected by Pydantic with HTTP 422. A valid but
@@ -23,6 +30,7 @@ unanswerable question returns HTTP 200 with the refusal answer, LOW confidence, 
 the service never errors a legitimate question it simply cannot answer.
 """
 
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -33,9 +41,10 @@ from fastapi import FastAPI
 # and in tests (conftest sets dummy env first; load_dotenv does not override existing vars).
 load_dotenv()
 
+from api import guards  # noqa: E402
 from api.citations import derive_citations  # noqa: E402
 from api.confidence import score_confidence  # noqa: E402
-from api.schemas import AgentAskResponse, AskRequest, AskResponse  # noqa: E402
+from api.schemas import AgentAskResponse, AskRequest, AskResponse, GuardInfo  # noqa: E402
 from mcp_server.server import mcp  # noqa: E402
 from src.pipeline import ask  # noqa: E402
 
@@ -79,28 +88,56 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-def _assemble(result: dict) -> tuple[str, list, float, str]:
-    """Shared answer/citation/confidence assembly for BOTH /ask and /ask/agent.
+def _refused(refusal: guards.Refusal) -> dict:
+    """A guard refusal: the category's fixed sentence, no citations, the LOW refusal tier, and the guard named."""
+    return {
+        "answer": refusal.answer,
+        "citations": [],
+        "confidence_score": guards.REFUSAL_SCORE,
+        "confidence_basis": refusal.basis,
+        "guard": GuardInfo(stage=refusal.stage, reason=refusal.reason),
+    }
+
+
+def _assemble(result: dict, question: str) -> dict:
+    """Shared answer/citation/confidence assembly for BOTH /ask and /ask/agent, behind the output guard.
 
     Both endpoints derive their response the same way (confidence from the answer; citations from the
     chunk metadata). Keeping that in ONE place means a future citations.py/confidence.py change reaches
     both endpoints or neither — they can't silently drift. Any pipeline/agent returning the frozen
-    {answer, chunks} shape satisfies it."""
+    {answer, contexts, chunks} shape satisfies it. When the output guard passes, the fields are exactly the
+    pre-G6 assembly plus `guard: None`; when it refuses, the answer is withheld whole, never trimmed."""
     answer = result["answer"]
+    refusal = guards.check_output(answer, result.get("contexts", []), question)
+    if refusal is not None:
+        return _refused(refusal)
     score, basis = score_confidence(answer)
     citations = derive_citations(answer, result.get("chunks", []))
-    return answer, citations, score, basis
+    return {
+        "answer": answer,
+        "citations": citations,
+        "confidence_score": score,
+        "confidence_basis": basis,
+        "guard": None,
+    }
+
+
+def _answer(question: str, pipeline: Callable[[str], dict]) -> tuple[dict, dict | None]:
+    """The ONE guarded path for both endpoints: input guard -> pipeline -> `_assemble` (with the output guard).
+
+    Returns the response fields and the pipeline's result, which is None when the input guard refused and the
+    pipeline never ran. An allowed question reaches the pipeline as the same str object, never rewritten."""
+    refusal = guards.check_input(question).refusal
+    if refusal is not None:
+        return _refused(refusal), None
+    result = pipeline(question)
+    return _assemble(result, question), result
 
 
 @app.post("/ask", response_model=AskResponse)
 def ask_question(req: AskRequest) -> AskResponse:
-    answer, citations, score, basis = _assemble(ask(req.question))
-    return AskResponse(
-        answer=answer,
-        citations=citations,
-        confidence_score=score,
-        confidence_basis=basis,
-    )
+    fields, _ = _answer(req.question, ask)
+    return AskResponse(**fields)
 
 
 @app.post("/ask/agent", response_model=AgentAskResponse)
@@ -109,16 +146,15 @@ def ask_question_agent(req: AskRequest) -> AgentAskResponse:
     direct), and the response reports the route taken. Cost: the router call is paid on EVERY request
     (incl. the ~85% that route direct) — see the module docstring; not a drop-in replacement for /ask.
     Router hiccups and filtered-retrieval failures/empties both fall back to the direct path inside the
-    graph, so a classifier or metadata-filter problem degrades to a full-corpus answer, never a 500."""
+    graph, so a classifier or metadata-filter problem degrades to a full-corpus answer, never a 500.
+    An input-guard refusal runs no route, so `route` is "none"; an output-guard refusal keeps the route that ran."""
     from agent.graph import ask as agent_ask  # lazy (see module note): isolates /ask from agent import
 
-    result = agent_ask(req.question)
-    answer, citations, score, basis = _assemble(result)
+    fields, result = _answer(req.question, agent_ask)
+    if result is None:
+        return AgentAskResponse(**fields, route="none")
     return AgentAskResponse(
-        answer=answer,
-        citations=citations,
-        confidence_score=score,
-        confidence_basis=basis,
+        **fields,
         route=result.get("route", "direct"),
         source_doc_id=result.get("source_doc_id") or None,  # "" (direct) -> null in the response
         routing_reason=result.get("routing_reason"),

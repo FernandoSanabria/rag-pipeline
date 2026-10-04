@@ -8,7 +8,18 @@ clients (which read these env vars lazily) are never instantiated and no network
 
 import os
 
+import pytest
+
 # Force dummy values so the suite is identical with or without a real .env / exported keys.
 os.environ["OPENAI_API_KEY"] = "test-openai-key"
 os.environ["PINECONE_API_KEY"] = "test-pinecone-key"
 os.environ["INDEX_NAME"] = "test-index"
+
+
+@pytest.fixture(autouse=True)
+def _classifier_in_scope(monkeypatch):
+    """The G6 input guard calls gpt-4o-mini on every /ask request. Stub that call to `in_scope` for every test so
+    the suite stays hermetic; tests/test_guards.py overrides it where the label matters."""
+    from api import guards
+
+    monkeypatch.setattr(guards, "classify_with_meta", lambda question: ("in_scope", {}))

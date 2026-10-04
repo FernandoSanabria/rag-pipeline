@@ -5,7 +5,7 @@ Request validation is strict: `strip_whitespace=True` means a blank or whitespac
 with a refusal answer, LOW confidence, and empty citations.
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, StringConstraints
 
@@ -22,11 +22,21 @@ class Citation(BaseModel):
     page: int      # 1-based page from chunk metadata, never the model's cited page
 
 
+class GuardInfo(BaseModel):
+    """Which G6 guard refused the request, and why (`api.guards`). The reason picks the fixed refusal sentence."""
+
+    stage: Literal["input", "output"]
+    reason: Literal[
+        "out_of_scope", "injection", "harmful_request", "pii_request", "guard_error", "untraceable_numbers"
+    ]
+
+
 class AskResponse(BaseModel):
     answer: str
     citations: list[Citation]
     confidence_score: float
     confidence_basis: str
+    guard: GuardInfo | None = None  # null whenever nothing was blocked
 
 
 class AgentAskResponse(AskResponse):
@@ -34,7 +44,8 @@ class AgentAskResponse(AskResponse):
 
     `route` is what actually ran ("direct" | "source_scoped"); on the source-scoped path `source_doc_id`
     and `routing_reason` name the single document the answer was scoped to. Both are null on the direct
-    path (incl. an execution fallback that downgraded a source-scoped classification to direct)."""
+    path (incl. an execution fallback that downgraded a source-scoped classification to direct). When the
+    input guard refuses, nothing ran: `route` is "none" and both are null."""
 
     route: str
     source_doc_id: str | None = None
