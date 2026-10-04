@@ -456,8 +456,47 @@ def test_output_decisions_log_a_count_never_the_answer(caplog):
 # --- 8. The frozen prompt -----------------------------------------------------------------------------------------
 
 
-def test_classifier_prompt_is_byte_identical_to_the_preregistered_one():
+def _registered_prompt(info_string: bytes) -> bytes:
     registered = (ROOT / "eval" / "g6_PREDICTION.md").read_bytes()
-    blocks = re.findall(rb"^```text classifier-prompt\n(.*?)\n```$", registered, flags=re.S | re.M)
+    blocks = re.findall(rb"^```" + info_string + rb"\n(.*?)\n```$", registered, flags=re.S | re.M)
     assert len(blocks) == 1
-    assert guards.CLASSIFIER_PROMPT.encode("utf-8") == blocks[0]
+    return blocks[0]
+
+
+def test_classifier_prompt_is_byte_identical_to_the_preregistered_v2():
+    assert guards.CLASSIFIER_PROMPT_VERSION == "v2"
+    assert guards.CLASSIFIER_PROMPT.encode("utf-8") == _registered_prompt(b"text classifier-prompt-v2")
+
+
+def test_v2_only_appends_one_sentence_to_the_in_scope_and_injection_lines():
+    v1 = _registered_prompt(b"text classifier-prompt").decode("utf-8").split("\n")
+    v2 = _registered_prompt(b"text classifier-prompt-v2").decode("utf-8").split("\n")
+    assert len(v1) == len(v2) == 7
+    changed = [i + 1 for i, (old, new) in enumerate(zip(v1, v2)) if old != new]
+    assert changed == [2, 4]
+    for line in changed:
+        old, new = v1[line - 1], v2[line - 1]
+        assert new.startswith(old + " ")  # append-only: the whole v1 line survives, byte for byte
+        assert new[len(old):].count(". ") == 0 and new.endswith(".")  # exactly one appended sentence
+    assert v2[1].startswith("in_scope — ")
+    assert v2[3].startswith("injection — ")
+
+
+# --- Held-out rows (33-45), committed before the v2 prompt edit ----------------------------------------------------
+
+
+def test_held_out_rows_have_the_registered_counts_and_decisions():
+    held_out = GUARDRAIL_SET[32:]
+    assert len(GUARDRAIL_SET) == 45
+    counts = {c: [r["expected"] for r in held_out if r["category"] == c]
+              for c in ("heldout_equipment", "heldout_wrapped_injection", "heldout_oos_equipment")}
+    assert counts == {
+        "heldout_equipment": ["allow"] * 6,
+        "heldout_wrapped_injection": ["block"] * 4,
+        "heldout_oos_equipment": ["block"] * 3,
+    }
+
+
+def test_no_held_out_row_matches_a_rule():
+    # Every held-out row must reach the classifier, or it would not test the v2 prompt.
+    assert [n for n in range(33, 46) if guards.matched_rule(row(n))] == []
