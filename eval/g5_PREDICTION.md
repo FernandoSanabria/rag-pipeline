@@ -156,3 +156,22 @@ Every case returned zero rows, and no client-received result contained a traceba
 client sees" in the MCP result. The server's stderr is the operator channel (CONTRACT.md, "Error contract"):
 under stdio, a client that forwards that stream shows the server's log, tracebacks included, by design. A grep
 of that log from the forced-failure runs found neither the key value nor any Authorization header.
+
+## Outcome — P5 (HTTP, live), recorded 2026-10-04
+
+Scored against the P5 text above. All three HOLD.
+
+- **(a) HOLDS** — the push-triggered wire-smoke on 79bf455 (2026-10-03 22:01Z, success) ran the /mcp
+  initialize probe: `POST /mcp -> HTTP 200 (ok)` under the shape check
+  `.result.serverInfo.name == "equip-docs-rag"`, followed by "All routes green: … /mcp". The negative
+  self-test also ran.
+- **(b) HOLDS** — the dispatch-only negative proof went red by design with all three intolerant paths failing,
+  including "POST /mcp returned 406 on 3 consecutive checks — /mcp transport is misconfigured (406: Accept
+  negotiation; 421: Host allow-list)". Disclosure: dispatched twice by operator error (2026-10-04 15:22Z and
+  15:24Z, both on 79bf455); the second is the scored run.
+- **(c) HOLDS** — scripts/mcp_client_probe.py from Akashas-MacBook-Pro.local against
+  https://equip-docs-rag-api.onrender.com/mcp completed initialize (serverInfo equip-docs-rag, 1.30.0),
+  list_tools (2 tools; k default 10 / maximum 10 as designed) and one search returning 3 rows
+  (sds-sigma-aldrich-acetone, pages 1, 3, 9; tier 2, vendor-copyrighted) with full provenance, isError false.
+  The first attempt hung on a Render free-tier cold start and was aborted; the second completed. Chunk text
+  not committed.
