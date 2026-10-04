@@ -103,9 +103,10 @@ Recorded 2026-10-02 from the G5 build: the design is `eval/g5_design.md`; the pr
 outcomes are in [`g5_PREDICTION.md`](g5_PREDICTION.md), whose pre-registration commit is tagged `prereg/g5` at
 PR time. The server's contract is [`mcp_server/CONTRACT.md`](../mcp_server/CONTRACT.md).
 
-**Shown (stdio, pre-registered):** P1 discovery, P3 provenance on every row and P4 structured error paths
-HOLD. **P2 live parity is FALSIFIED** on one of five queries — see the Outcome section of
-[`g5_PREDICTION.md`](g5_PREDICTION.md). P2 fell to embedding non-reproducibility on a near-tied pair; the
+**Shown (pre-registered):** P1 discovery, P3 provenance on every row and P4 structured error paths HOLD over
+stdio. P5 HOLDS over HTTP (recorded 2026-10-04): the deployed `/mcp` passed the post-deploy wire-smoke, the
+negative proof and an external client. **P2 live parity is FALSIFIED** on one of five queries — see the Outcome
+sections of [`g5_PREDICTION.md`](g5_PREDICTION.md). P2 fell to embedding non-reproducibility on a near-tied pair; the
 measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
 
 **Not shown or deferred (backlog, not fixed):**
@@ -120,5 +121,6 @@ measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
   in-image import step in CI.
 - **`/mcp` has no authentication.** The tools are read-only and a search costs one embedding call — the same
   exposure class as `/ask` — so none was added; recorded as a follow-on.
-- **P5 (an external client against the deployed `/mcp`) is pending.** The HTTP transport ships in the same PR as
-  this entry and can only be verified live after the merge deploys it; until then P5 is NOT TESTED.
+- The doc-guard reads 11-digit GitHub Actions run IDs as commit hashes, so docs cite runs by trigger, timestamp
+  and head commit, and run URLs live in PR bodies. Exempting `/actions/runs/<id>` URLs in
+  `scripts/check_doc_citations.py` (with a test) is a candidate improvement, not done here.
