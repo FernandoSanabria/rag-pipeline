@@ -151,3 +151,25 @@ scored then lost to a formatting bug before save. The failed/lost scorings (~1,3
 roughly **doubled** the closure cost. Sequential single-sample scoring was the only reliable path for
 answer_correctness. Mitigation for next time: score sequentially (or save raw per-sample scores before any
 aggregation), and treat batch RAGAS as best-effort.
+
+## D. G6 guardrails (2026-10-04) [d, from measured token counts × list price; not dashboard-reconciled]
+Token counts are measured per run by LangChain's OpenAI callback in `scripts/guardrail_eval.py`. Cost is
+**derived** at the list prices above. There was no RAGAS judging.
+
+| item | chat requests | prompt tokens (cached) | completion tokens | cost | flag |
+|---|--:|--:|--:|--:|:--|
+| design probes (acetone at CAP=0, ×3) | — | — | — | ~$0.003 | d (estimate) |
+| v1 run — P1, input guard, frozen 28 × 3 | 84 | 37,095 (0) | 507 | $0.0059 | d |
+| v1 run — P2, input guard, guardrail set × 3 | 90 | 39,429 (0) | 591 | $0.0063 | d |
+| v1 run — P3, output guard, frozen 28 × 3 × 2 endpoints | 339 | 2,026,401 (1,475,840) | 25,058 | $0.2083 | d |
+| v1 run — P3b, capability set × 3 × 2 endpoints | 45 | 219,009 (160,256) | 2,868 | $0.0226 | d |
+| v1 run — P4, acetone at CAP=0 × 5 | 10 | 25,635 (20,480) | 155 | $0.0024 | d |
+| v1 run — P5, pass-through, frozen 28 × 3 pairs | 249 | 1,305,234 (1,220,352) | 17,117 | $0.1145 | d |
+| v1 run — embeddings | 31 calls | 613 tokens | — | <$0.0001 | d |
+| v2 run — P1′ | 84 | 43,647 (0) | 507 | $0.0069 | d |
+| v2 run — P2′ (45 rows) | 129 | 66,939 (0) | 834 | $0.0105 | d |
+| **total** | **1,030** | | | **~$0.38** of the $2.00 budget | d |
+
+**Cache note.** Memoizing the query embedding made the repeated trials of a question send byte-identical
+generation prompts. OpenAI's prompt cache therefore served 79% of the v1 run's prompt tokens (2,876,928 of
+3,652,803) at the cached price.

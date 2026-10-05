@@ -73,7 +73,8 @@ phase0/
   `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools).
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
   `POST /mcp`, the G5 MCP server over streamable HTTP),
-  `citations.py`, `confidence.py`, `schemas.py`. `agent.graph` is imported lazily, so an agent-side import
+  `citations.py`, `confidence.py`, `schemas.py`, and `guards.py` (G6: the output guard, applied to both endpoints
+  in the shared assembly; the input guard is built but switched off by `INPUT_GUARD_ENABLED`). `agent.graph` is imported lazily, so an agent-side import
   failure can break only `/ask/agent`; `api.main` imports `mcp_server` eagerly (a route must exist at startup),
   which constructs `Settings` at import and therefore requires both API keys to be present before
   `import api.main` — every existing entry point already supplies them.
@@ -90,7 +91,9 @@ phase0/
 ## 4. Request flow — two serving paths
 
 There are **two endpoints over one shared assembly layer**. Both return the same typed contract
-(`answer`, `citations`, `confidence_score`, `confidence_basis`); the agent path adds routing fields.
+(`answer`, `citations`, `confidence_score`, `confidence_basis`, `guard`); the agent path adds routing fields.
+The shared assembly also holds the G6 output guard: an answer with a figure that traces to nothing retrieved is
+withheld whole, on both endpoints (see *Guardrails* in [`README.md`](README.md)).
 
 **`POST /ask` — the shipped default.** `src.pipeline.ask`: dense retrieval → context formatting →
 grounded generation. No router, no per-request LLM tax beyond the answer itself. This is the
@@ -192,6 +195,10 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     Contract in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md); design, pre-registration and
     outcomes in [`eval/g5_design.md`](eval/g5_design.md) and [`eval/g5_PREDICTION.md`](eval/g5_PREDICTION.md)
     — this file does not carry a result those files own.
+  - **G6 = guardrails** ([`api/guards.py`](api/guards.py)). The output guard shipped; the input guard is built,
+    measured and switched off. Design in [`eval/g6_design.md`](eval/g6_design.md); the v1 and v2
+    pre-registrations and their outcomes are in [`eval/g6_PREDICTION.md`](eval/g6_PREDICTION.md). This file does not
+    carry a result those files own.
   - **G10b = a checkpointer + human-approval gate.** Not built; **pre-designed** in
     [`eval/replay_safety_design.md`](eval/replay_safety_design.md) (interrupt/resume, one-thread-per-
     question isolation, the persistence hazard on a no-persistent-disk host).
