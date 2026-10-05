@@ -142,6 +142,12 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     vectors and 1 differing by up to 9.2e-05 per component, enough to swap two chunks 8e-06 apart in
     score. Near-tied ranks can differ between identical calls. Recorded 2026-10-02, from the G5 P2
     post-hoc check; no pipeline effect measured.
+  - Row numbers follow two conventions: the G1 closure records (the outcome in
+    [`toolcall_PREDICTION.md`](toolcall_PREDICTION.md), [`g1_closure_probe.md`](g1_closure_probe.md),
+    [`g1_closure_PREDICTION.md`](g1_closure_PREDICTION.md), this ledger's G1 rows and the G1 section of
+    [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)) number dataset rows 0-based, while G5's P2 list
+    ([`g5_PREDICTION.md`](g5_PREDICTION.md)) and the G6 records are 1-based, so the IDLH-vs-EPA-endpoint ammonia
+    question is row 8 in the G1 records and row 9 in G5's and G6's.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the

@@ -143,6 +143,8 @@ What it was measured to do (counts with N):
   - On `/ask/agent`, 2/9 were withheld: the conversion tool fired, but the model ignored its value and multiplied the document's factor itself.
 - **What it cannot see: units.** It matches values, not meanings. On `/ask`, the chlorine conversion 4 × 2.90 = 11.6 passed 3/3, because an unrelated "IP: 11.55 eV" (phosgene's ionization potential) was in the retrieved context.
 
+**For unit conversions, use `/ask/agent`:** `/ask` withholds figures it computes rather than quotes — on the capability set it withheld 6 of 9 conversion answers (3 conversions × 3 trials), all six of them correct in-head conversions such as 75 ppm × 0.70 = 52.5 mg/m³ — whereas on `/ask/agent` the conversion tool's value enters the context, and 7 of its 9 answers passed.
+
 **The input guard: built, measured, not shipped.**
 - **What it was.** Six narrow injection patterns, then one `gpt-4o-mini` classification of the question (in scope, out of scope, injection, harmful request, or personal information). It refused when the call failed.
 - **How it was tested.** It was pre-registered twice, each time with zero tolerance for refusing a frozen question.

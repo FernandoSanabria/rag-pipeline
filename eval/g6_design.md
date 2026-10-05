@@ -4,11 +4,7 @@ Recorded 2026-10-04. These are the read-only probes and the design, accepted at 
 code**. The pre-registration is [`g6_PREDICTION.md`](g6_PREDICTION.md) and the guardrail set is
 [`guardrail_set.jsonl`](guardrail_set.jsonl).
 
-> **Outcome (2026-10-04):**
-> - The output guard shipped.
-> - The input guard was built and measured but **not shipped**. Two pre-registered prompts were both falsified on
->   zero-tolerance items.
-> - The outcomes are appended to [`g6_PREDICTION.md`](g6_PREDICTION.md). This design is kept as accepted at GATE 1.
+**Status:** see the Outcome sections of [`g6_PREDICTION.md`](g6_PREDICTION.md).
 
 **Goal.** Add an input guard and an output guard in the `api/` layer, each with a pre-registered, measured
 block rate and false-positive rate.
