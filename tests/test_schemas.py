@@ -34,7 +34,8 @@ def test_response_serializes_full_contract():
         confidence_basis="high: answer generated from retrieved context",
     )
     dumped = resp.model_dump()
-    assert set(dumped) == {"answer", "citations", "confidence_score", "confidence_basis"}
+    assert set(dumped) == {"answer", "citations", "confidence_score", "confidence_basis", "guard"}
+    assert dumped["guard"] is None  # G6: additive, null whenever nothing was blocked
     assert dumped["citations"] == [{"document": "29 CFR 1910.1000 — Air contaminants", "page": 7}]
 
 

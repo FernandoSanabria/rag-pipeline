@@ -18,7 +18,7 @@ curl -s -X POST https://equip-docs-rag-api.onrender.com/ask \
   -d '{"question":"In an ammonia refrigeration system, why is a vapor-space rupture unlikely to be the worst-case release compared to a liquid release?"}'
 ```
 
-Every answer is a typed contract — `answer`, `citations: [{document, page}]`, `confidence_score`, `confidence_basis` — so a caller gets the grounded answer, its sources, and a plain-language reason for the confidence.
+Every answer is a typed contract — `answer`, `citations: [{document, page}]`, `confidence_score`, `confidence_basis`, and `guard` (null unless a guardrail withheld the answer; see [Guardrails](#guardrails)) — so a caller gets the grounded answer, its sources, and a plain-language reason for the confidence.
 
 **Honest refusal, never fabrication.** Ask something outside the corpus (`{"question": "What is the capital of France?"}`) and the service returns the exact refusal sentence with `confidence_score` 0.25 and empty `citations` — it declines rather than inventing an answer.
 
@@ -122,6 +122,39 @@ No source PDF is ever committed, in either tier; provenance (publisher, license,
 ## MCP server
 
 An MCP server ([`mcp_server/`](mcp_server/CONTRACT.md)) exposes the corpus to external MCP clients as two read-only tools: `search_safety_docs` (the same dense retrieval the pipeline uses) and `lookup_document_metadata`. **Search results carry full chunk text for both tiers, with provenance on every result — title, publisher, page, tier and license.** Run it over stdio with `uv run python -m mcp_server`; the API also serves it over streamable HTTP at `POST /mcp`. The schemas, the licensing policy, the error contract and client setup are in [`mcp_server/CONTRACT.md`](mcp_server/CONTRACT.md).
+
+## Guardrails
+
+Both `/ask` endpoints run an **output guard** (G6). An **input guard** was built and measured too, but it is not shipped, because both of its pre-registered versions failed. The design is in [`eval/g6_design.md`](eval/g6_design.md), and the predictions and outcomes are in [`eval/g6_PREDICTION.md`](eval/g6_PREDICTION.md).
+
+**The output guard: every figure must trace to what was retrieved.**
+- **The rule.** Before an answer leaves the service, each number in it must match a number in the retrieved contexts or in the question.
+  - Decimal commas, thousands separators and minus signs are normalized before matching.
+  - Rounding half-up to the answer's displayed precision counts as a match.
+  - Identifiers such as `UN1017` must appear verbatim.
+- **What a refusal looks like.** If any figure traces to nothing, the whole answer is withheld: refused, never trimmed. The response carries a fixed sentence, empty `citations`, `confidence_score` 0.25 and `guard: {"stage": "output", "reason": "untraceable_numbers"}`.
+- **Cost.** It is deterministic, costs nothing, and takes 3.2 ms at p50.
+
+What it was measured to do (counts with N):
+- **No false positives on the frozen 28.** 0/84 answers were withheld on each endpoint (28 questions × 3 trials), and retrieval passed through unchanged (81/81 pairs). These questions were also used to develop the number-matching rules, so the result is in-sample.
+- **One true catch in 678 recorded answers.** Replayed over 26 earlier result files, it withheld exactly one answer: a 2026-08-03 agent answer that gave the NIOSH IDLH for ammonia as "300 ppm (0.21 mg/m³)". That figure is in none of its retrieved contexts, and it is off by ×1000.
+- **The trade-off: it refuses arithmetic the model does in its head.** The capability set has 3 unit conversions, each run 3 times per endpoint.
+  - On `/ask`, 6/9 answers were withheld: they computed values such as 75 × 0.70 = 52.5 that no document states.
+  - On `/ask/agent`, 2/9 were withheld: the conversion tool fired, but the model ignored its value and multiplied the document's factor itself.
+- **What it cannot see: units.** It matches values, not meanings. On `/ask`, the chlorine conversion 4 × 2.90 = 11.6 passed 3/3, because an unrelated "IP: 11.55 eV" (phosgene's ionization potential) was in the retrieved context.
+
+**For unit conversions, use `/ask/agent`:** `/ask` withholds figures it computes rather than quotes — on the capability set it withheld 6 of 9 conversion answers (3 conversions × 3 trials), all six of them correct in-head conversions such as 75 ppm × 0.70 = 52.5 mg/m³ — whereas on `/ask/agent` the conversion tool's value enters the context, and 7 of its 9 answers passed.
+
+**The input guard: built, measured, not shipped.**
+- **What it was.** Six narrow injection patterns, then one `gpt-4o-mini` classification of the question (in scope, out of scope, injection, harmful request, or personal information). It refused when the call failed.
+- **How it was tested.** It was pre-registered twice, each time with zero tolerance for refusing a frozen question.
+- **v1** refused 1 of the frozen 28 (a Fisher 657 torque specification, in 3/3 trials) and let 2 of 6 injections through.
+- **v2** appended one sentence to each of two lines of the prompt, after 13 held-out questions had been committed.
+  - It fixed both v1 failures. It allowed the 6 held-out equipment questions (18/18 decisions) and blocked the 3 look-alike controls (9/9).
+  - It failed in two places. It refused another frozen question (the Airgas chlorine UN number, 3/3), and it let 1 of 4 held-out injections through (one hidden in a configuration block, 3/3).
+- **Hard negatives.** Neither version blocked any of the 9 (0/27 decisions each).
+- **Where it stands.** Its code and tests stay in the repo, switched off by `INPUT_GUARD_ENABLED = False`. The record is in [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).
+- **Without it,** the generator's cite-or-refuse prompt is what keeps an out-of-scope question from being answered.
 
 ## Setup
 

@@ -2,6 +2,9 @@
 
 Tests the WIRING only: that the endpoint assembles the response contract, maps confidence + citations
 correctly, and returns the right status codes. Answer QUALITY is the eval harness's job, not this suite's.
+
+Each stub context states the figures its answer gives, because the G6 output guard withholds an answer whose
+figures trace to nothing retrieved (api/guards.py). The input guard's classifier is stubbed in conftest.py.
 """
 
 from fastapi.testclient import TestClient
@@ -32,7 +35,7 @@ def test_health_ok():
 def test_ask_answered_maps_high_and_citations(monkeypatch):
     monkeypatch.setattr(main, "ask", _stub({
         "answer": "The OSHA PEL for anhydrous ammonia is 50 ppm.",
-        "contexts": ["[source_doc_id=osha-1910-119 page=7]\n..."],
+        "contexts": ["[source_doc_id=osha-1910-119 page=7]\n... PEL 50 ppm ..."],
         "chunks": [{"source_doc_id": "osha-1910-119", "page": 7, "text": "..."}],
     }))
     r = client.post("/ask", json={"question": "What is the OSHA PEL for anhydrous ammonia?"})
@@ -63,6 +66,23 @@ def test_ask_blank_question_returns_422():
     assert client.post("/ask", json={"question": "  "}).status_code == 422
 
 
+def test_input_guard_is_off_in_the_shipped_app(monkeypatch):
+    # G6: the input guard is built and measured but not shipped (two prompts, both falsified;
+    # eval/g6_PREDICTION.md). Even a classifier that would block never runs: the pipeline answers.
+    from api import guards
+
+    assert main.INPUT_GUARD_ENABLED is False
+    monkeypatch.setattr(guards, "classify_with_meta", lambda question: ("pii_request", {}))
+    monkeypatch.setattr(main, "ask", _stub({
+        "answer": "The OSHA PEL for anhydrous ammonia is 50 ppm.",
+        "contexts": ["[source_doc_id=osha-1910-119 page=7]\n... PEL 50 ppm ..."],
+        "chunks": [{"source_doc_id": "osha-1910-119", "page": 7, "text": "..."}],
+    }))
+    body = client.post("/ask", json={"question": "What is the OSHA PEL for anhydrous ammonia?"}).json()
+    assert body["guard"] is None
+    assert body["confidence_score"] == 0.9
+
+
 def test_ask_missing_question_returns_422():
     assert client.post("/ask", json={}).status_code == 422
 
@@ -77,7 +97,7 @@ def test_ask_agent_direct_surfaces_route_and_reuses_assembly(monkeypatch):
     # A comparison (e.g. the shipped IDLH row) routes DIRECT: route=direct, no source_doc_id/reason.
     _stub_agent(monkeypatch, {
         "answer": "The NIOSH IDLH is 300 ppm; the EPA RMP endpoint is 200 ppm.",
-        "contexts": ["[source_doc_id=niosh-pocket-guide page=45]\n..."],
+        "contexts": ["[source_doc_id=niosh-pocket-guide page=45]\n... IDLH 300 ppm ... endpoint 200 ppm ..."],
         "chunks": [{"source_doc_id": "niosh-pocket-guide", "page": 45, "text": "..."}],
         "route": "direct", "source_doc_id": "", "routing_reason": None,
     })
@@ -96,7 +116,7 @@ def test_ask_agent_source_scoped_surfaces_doc_and_reason(monkeypatch):
     # A single-document question ("per the Sigma-Aldrich SDS") routes SOURCE_SCOPED.
     _stub_agent(monkeypatch, {
         "answer": "The flash point of acetone is -17.0 C (closed cup).",
-        "contexts": ["[source_doc_id=sds-sigma-aldrich-acetone page=7]\n..."],
+        "contexts": ["[source_doc_id=sds-sigma-aldrich-acetone page=7]\n... flash point -17,0 °C ..."],
         "chunks": [{"source_doc_id": "sds-sigma-aldrich-acetone", "page": 7, "text": "..."}],
         "route": "source_scoped", "source_doc_id": "sds-sigma-aldrich-acetone",
         "routing_reason": "Question attributed to a single named document: Acetone SDS",
