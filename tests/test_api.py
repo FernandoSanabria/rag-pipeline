@@ -66,6 +66,23 @@ def test_ask_blank_question_returns_422():
     assert client.post("/ask", json={"question": "  "}).status_code == 422
 
 
+def test_input_guard_is_off_in_the_shipped_app(monkeypatch):
+    # G6: the input guard is built and measured but not shipped (two prompts, both falsified;
+    # eval/g6_PREDICTION.md). Even a classifier that would block never runs: the pipeline answers.
+    from api import guards
+
+    assert main.INPUT_GUARD_ENABLED is False
+    monkeypatch.setattr(guards, "classify_with_meta", lambda question: ("pii_request", {}))
+    monkeypatch.setattr(main, "ask", _stub({
+        "answer": "The OSHA PEL for anhydrous ammonia is 50 ppm.",
+        "contexts": ["[source_doc_id=osha-1910-119 page=7]\n... PEL 50 ppm ..."],
+        "chunks": [{"source_doc_id": "osha-1910-119", "page": 7, "text": "..."}],
+    }))
+    body = client.post("/ask", json={"question": "What is the OSHA PEL for anhydrous ammonia?"}).json()
+    assert body["guard"] is None
+    assert body["confidence_score"] == 0.9
+
+
 def test_ask_missing_question_returns_422():
     assert client.post("/ask", json={}).status_code == 422
 

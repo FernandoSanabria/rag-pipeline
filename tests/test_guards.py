@@ -67,6 +67,13 @@ ACETONE_CONTEXTS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _input_guard_on(monkeypatch):
+    """The shipped app has the input guard off (main.INPUT_GUARD_ENABLED: two prompts, both falsified). These tests
+    exercise its wiring, so they switch it on; tests/test_api.py pins the shipped default."""
+    monkeypatch.setattr(main, "INPUT_GUARD_ENABLED", True)
+
+
 def row(n: int) -> str:
     """The question on row n (1-based) of eval/guardrail_set.jsonl."""
     return GUARDRAIL_SET[n - 1]["question"]

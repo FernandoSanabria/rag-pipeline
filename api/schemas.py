@@ -44,8 +44,8 @@ class AgentAskResponse(AskResponse):
 
     `route` is what actually ran ("direct" | "source_scoped"); on the source-scoped path `source_doc_id`
     and `routing_reason` name the single document the answer was scoped to. Both are null on the direct
-    path (incl. an execution fallback that downgraded a source-scoped classification to direct). When the
-    input guard refuses, nothing ran: `route` is "none" and both are null."""
+    path (incl. an execution fallback that downgraded a source-scoped classification to direct). If the input
+    guard refuses (it is off in the shipped app; api/main.py), nothing ran: `route` is "none" and both are null."""
 
     route: str
     source_doc_id: str | None = None
