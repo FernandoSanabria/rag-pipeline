@@ -89,16 +89,17 @@ def _tool_llm_no_calls(monkeypatch):
     monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub())
 
 
-def test_fresh_state_initializes_all_twelve_channels():
-    """State construction contract: fresh_state seeds ALL 12 channels with correct defaults (9 original +
-    the 3 G1 tool channels), so no node ever reads an unset channel and the add-reducer accumulators
-    (`retrieved`, `trace_notes`, `tool_results`) start EMPTY (invariant (a))."""
+def test_fresh_state_initializes_all_thirteen_channels():
+    """State construction contract: fresh_state seeds ALL 13 channels with correct defaults (9 original +
+    the 3 G1 tool channels + the G12 `fanout` staging channel), so no node ever reads an unset channel and the
+    add-reducer accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY (invariant (a))."""
     st = fresh_state("what is X?")
     assert set(st) == {
         "question", "sub_questions", "route", "source_doc_id", "retrieval_error",
         "retrieved", "answer", "citations", "trace_notes",
-        "tool_calls", "tool_results", "tool_iterations",
+        "tool_calls", "tool_results", "tool_iterations", "fanout",
     }
+    assert st["fanout"] == []               # G12: add-reducer accumulator starts empty
     assert st["question"] == "what is X?"
     assert st["route"] == "direct"         # 2A / v4 direct path
     assert st["source_doc_id"] == ""        # 2C: no source-scope on the direct path
