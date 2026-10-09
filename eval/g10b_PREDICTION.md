@@ -156,3 +156,84 @@ The G9 smoke on this branch's PR runs, with row 24's context set; recorded at GA
   - P2, $0.008;
   - P4 and P5, $0.020.
 - P3a's separate uvicorn process isn't counted: one router call, one tool decision and one generation.
+
+## Outcome — P3b (live, recorded 2026-10-09)
+**P3b HOLDS.** The predictions above are unchanged; this section only appends. Rows are 1-based; times are UTC on
+2026-10-09.
+
+**The service** is `https://equip-docs-rag-api.onrender.com`, running `ed8a423` (PR #38's merge, pushed at 07:21:09Z).
+The post-merge wire-smoke was green at 07:23:08Z.
+
+**Thread ids are written in upper case.** RFC 4122 UUIDs are case-insensitive, and the doc guard would otherwise read
+their hex groups as commit hashes.
+
+### The positive control (not pre-registered)
+**First attempt: FAILED.** It ran after the merge and before 07:25:11Z; its exact time wasn't recorded. Row 10's
+question returned HTTP 200 with the `review_unavailable` refusal: `guard: {stage: review, reason:
+review_unavailable}`, route `direct`, no thread id.
+- **Why the old instance can't explain it.** Only G10b code emits this refusal, so the request reached a G10b
+  instance. The pre-G10b instance (`b278f18`) has no gate and would have answered.
+- **What G10b code does.** It refuses in two cases: `REVIEW_DB_PATH` empty in that instance, or a SQLite error during
+  the run.
+- **Cause not established.** The deploy events between the merge and 07:25:11Z were not available, so this record
+  can't show whether a deploy applied `REVIEW_DB_PATH` between the failed control and the pause.
+- **What is established:**
+  - the pause at 07:25:11Z needed a checkpointer, so that instance had the variable;
+  - the 07:26:42Z deploy logged "review: startup sweep deleted 0 thread(s)", and the sweep runs only when
+    `REVIEW_DB_PATH` is set.
+- **The follow-up calls** in that transcript sent a null thread id and got 422s, as designed.
+
+**Second attempt, on the settled deployment: PASSED.**
+
+| step | time | response |
+|---|---|---|
+| `POST /ask/agent` (row 10) | 08:15:38Z | HTTP **202**, `reason: exposure_limit_named`, 10 evidence items, `expires_at` 2026-10-10T08:15:38Z |
+| `GET /ask/agent/review/{thread}` | 08:15:38Z | `pending` |
+| `POST /ask/agent/resume` with approve | 08:15:41Z | HTTP 200, `guard: null`, confidence basis "high: answer generated from retrieved context" |
+| status afterwards | 08:15:41Z | `approved` |
+
+- **The thread:** `50EA4525-0E53-4873-B7D2-90717BCC9B4E`.
+- **The answer, verbatim** (the cited document is tier 1): "The exposure limits for chlorine under OSHA and NIOSH are
+  as follows: **NIOSH REL**: Ceiling (C) 0.5 ppm (1.45 mg/m³) for a 15-minute exposure. **OSHA PEL**: Ceiling (C)
+  1 ppm (3 mg/m³). Thus, NIOSH has a lower ceiling limit compared to OSHA for chlorine exposure.
+  [source_doc_id=niosh-pocket-guide page=89]".
+- **The citations** (8, derived from the retrieved pages): NIOSH Pocket Guide to Chemical Hazards pages 89, 10, 88,
+  377, 11, 4 and 15; Airgas Safety Data Sheet — Chlorine page 4.
+
+### P3b — HOLDS
+1. **The pause, 07:25:11Z.**
+   - Row 11's question ("What is the occupational exposure limit for anhydrous ammonia under OSHA versus NIOSH?")
+     returned HTTP 202.
+   - Thread `F83A23C2-1A4B-4A26-9568-8E6C54E84E76`, reason `exposure_limit_named`, 10 evidence chunks.
+2. **The redeploy.** A manual deploy of `ed8a423` started a new server process. It logged "review: startup sweep
+   deleted 0 thread(s)" at 07:26:42Z, and the service was then live. The SQLite file had been replaced along with the
+   filesystem.
+3. **The resume, 07:28:49Z.**
+   - `GET /ask/agent/review/{thread}` returned `expired_or_lost`.
+   - `POST /ask/agent/resume` with approve returned HTTP 200 with the refusal `guard: {stage: review, reason:
+     expired_or_lost}`, route `"none"`, no answer and no citations.
+4. **The registered falsifier,** an answer emitted for a thread the service should not know, **did not occur**.
+
+**Elapsed time:** 3 min 38 s between the pause and the resume, well under Render's 15-minute idle spin-down, so
+spin-down is excluded as a cause. The loss is the redeploy's.
+
+### P6 — HOLDS (read at GATE 3)
+PR #38's final eval-smoke run (`pull_request`, head of the G10b branch, 2026-10-09):
+- green, with 0 reds and T1 8/8;
+- row 24 routed `source_scoped`, with a page set and context hash identical to `eval/smoke_snapshot.json`;
+- row 21's known variant was reported on T2, not red.
+
+### Observations, labelled as such
+- **`WEB_CONCURRENCY=1`** on Render: its deploy log reads "Setting WEB_CONCURRENCY=1 by default". The single-worker
+  assumption behind the in-process resume lock holds.
+- **Row 11's live evidence: 10 chunks, of which 3 concern ammonia.** As `(source_doc_id, page)`:
+  - **on ammonia:** `(sds-nutrien-anhydrous-ammonia, 3)`, `(niosh-pocket-guide, 45)` (the ammonia entry) and
+    `(sds-nutrien-anhydrous-ammonia, 6)`;
+  - **the rest:** NIOSH Pocket Guide pages 264, 241, 196, 46, 141, 375 and 370 (other substances and appendix text).
+
+  The reviewer sees the known precision problem directly, and amend (removals) exists for exactly that.
+- **Evidence text is not committed;** keys and pages only.
+
+### Spend
+The live requests were the two pauses, one approve, one resume, the status reads and the failed control. That is a few
+router, tool and generation calls, negligible at list price: under $0.01, not counted.

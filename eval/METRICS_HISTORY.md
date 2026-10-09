@@ -510,3 +510,7 @@ The demotion rule stays registered.
 | P4 pass-through | contexts handed to `generate`, three arms | 75/75 identical | HOLDS |
 | P5 latency | p50 with the checkpointer minus without (generation stubbed, decisions memoized) | +2.4 ms | HOLDS |
 | P6 G9 smoke | this PR's eval-smoke runs | read at GATE 3 | — |
+| P6 G9 smoke (read at GATE 3) | PR #38's final eval-smoke run, `pull_request`: 0 reds, T1 8/8, row 24's set and context hash identical to the snapshot | green | HOLDS |
+| Positive control 1 (not registered) | live, after the merge of `ed8a423`, before 07:25:11Z: row 10 → HTTP 200 `review_unavailable` refusal, no thread | failed; cause not established | — |
+| P3b Render redeploy (live, closure) | pause 07:25:11Z (row 11, `exposure_limit_named`, 10 chunks) → manual deploy of `ed8a423`, live by 07:26:42Z, sweep deleted 0 → resume 07:28:49Z | `expired_or_lost`, route `none`, no answer | HOLDS |
+| Positive control 2 (not registered) | live on `ed8a423`, 08:15:38Z: row 10 → 202 → `pending` → approve at 08:15:41Z | 200, answer with 8 citations, guard null; status `approved` | passed |
