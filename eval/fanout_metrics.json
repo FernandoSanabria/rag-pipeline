@@ -1,0 +1,644 @@
+{
+  "kind": "g12_fanout_metrics",
+  "note": "Derived metrics only: no answer text, no retrieved contexts, no question text. Rows are 1-based indexes into eval/dataset.jsonl.",
+  "preregistration": "eval/g12_PREDICTION.md (tag prereg/g12)",
+  "timestamp_utc": "20261009T034244Z",
+  "trials": 3,
+  "current_arm": "agent/graph.py at the branch point (afd81eb)",
+  "retrieval_namespace": "semantic_v2",
+  "retrieval_k": 10,
+  "generation_backends": {
+    "P1": [
+      {
+        "model_name": "gpt-4o-mini-2024-07-18",
+        "system_fingerprint": "fp_2fb502e36f",
+        "n_calls": 24
+      }
+    ],
+    "P3": [],
+    "P4": [
+      {
+        "model_name": "gpt-4o-mini-2024-07-18",
+        "system_fingerprint": "fp_2fb502e36f",
+        "n_calls": 12
+      }
+    ],
+    "P5": []
+  },
+  "decomposer_fingerprints": {
+    "gpt-4o-mini-2024-07-18|fp_551db23bc9": 24
+  },
+  "judge_fingerprints": {
+    "gpt-4o-mini-2024-07-18|fp_8f7cd315de": 48,
+    "gpt-4o-mini-2024-07-18|fp_4e22378d6e": 372,
+    "gpt-4o-mini-2024-07-18|fp_b742a60b91": 24,
+    "gpt-4o-mini-2024-07-18|fp_91ad5947c4": 24,
+    "gpt-4o-mini-2024-07-18|fp_5b4bcc598a": 12
+  },
+  "P1": {
+    "comparison_rows_fired": 12,
+    "comparison_runs": 12,
+    "per_row": {
+      "9": 3,
+      "10": 3,
+      "11": 3,
+      "21": 3
+    }
+  },
+  "P2": {
+    "fanout_both_sources": 12,
+    "fanout_runs": 12,
+    "current_both_sources": 6,
+    "current_runs": 12,
+    "per_row": {
+      "9": {
+        "fanout": 3,
+        "current": 3,
+        "fanout_value_lines": [
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          },
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          },
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          }
+        ],
+        "current_value_lines": [
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          },
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          },
+          {
+            "niosh-pocket-guide": true,
+            "epa-rmp-ammonia-refrigeration": true
+          }
+        ]
+      },
+      "10": {
+        "fanout": 3,
+        "current": 0,
+        "fanout_value_lines": [
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          }
+        ],
+        "current_value_lines": [
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          }
+        ]
+      },
+      "11": {
+        "fanout": 3,
+        "current": 0,
+        "fanout_value_lines": [
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": true,
+            "niosh-pocket-guide": true
+          }
+        ],
+        "current_value_lines": [
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          },
+          {
+            "osha-1910-1000": false,
+            "niosh-pocket-guide": true
+          }
+        ]
+      },
+      "21": {
+        "fanout": 3,
+        "current": 3,
+        "fanout_value_lines": [
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": true
+          },
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": true
+          },
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": true
+          }
+        ],
+        "current_value_lines": [
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": false
+          },
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": false
+          },
+          {
+            "sds-airgas-chlorine": true,
+            "osha-1910-1000": false
+          }
+        ]
+      }
+    }
+  },
+  "P3": [
+    {
+      "row": 9,
+      "metric": "context_recall",
+      "prediction": "no_drop",
+      "current_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "fanout_trials": [
+        1.0,
+        1.0,
+        0.6667
+      ],
+      "current_range": [
+        1.0,
+        1.0
+      ],
+      "current_mean": 1.0,
+      "fanout_mean": 0.8889,
+      "difference": -0.1111,
+      "verdict": "FALSIFIED"
+    },
+    {
+      "row": 10,
+      "metric": "context_recall",
+      "prediction": "no_drop",
+      "current_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "fanout_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "current_range": [
+        1.0,
+        1.0
+      ],
+      "current_mean": 1.0,
+      "fanout_mean": 1.0,
+      "difference": 0.0,
+      "verdict": "HOLDS"
+    },
+    {
+      "row": 11,
+      "metric": "context_recall",
+      "prediction": "no_drop",
+      "current_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "fanout_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "current_range": [
+        1.0,
+        1.0
+      ],
+      "current_mean": 1.0,
+      "fanout_mean": 1.0,
+      "difference": 0.0,
+      "verdict": "HOLDS"
+    },
+    {
+      "row": 21,
+      "metric": "context_recall",
+      "prediction": "no_drop",
+      "current_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "fanout_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "current_range": [
+        1.0,
+        1.0
+      ],
+      "current_mean": 1.0,
+      "fanout_mean": 1.0,
+      "difference": 0.0,
+      "verdict": "HOLDS"
+    },
+    {
+      "row": 9,
+      "metric": "context_precision",
+      "prediction": "up",
+      "current_trials": [
+        0.886,
+        0.6974,
+        0.7159
+      ],
+      "fanout_trials": [
+        0.4359,
+        0.6967,
+        0.6967
+      ],
+      "current_range": [
+        0.6974,
+        0.886
+      ],
+      "current_mean": 0.7664,
+      "fanout_mean": 0.6098,
+      "difference": -0.1567,
+      "verdict": "FALSIFIED"
+    },
+    {
+      "row": 10,
+      "metric": "context_precision",
+      "prediction": "down",
+      "current_trials": [
+        0.7611,
+        0.7611,
+        0.7454
+      ],
+      "fanout_trials": [
+        0.8649,
+        0.8115,
+        0.866
+      ],
+      "current_range": [
+        0.7454,
+        0.7611
+      ],
+      "current_mean": 0.7559,
+      "fanout_mean": 0.8475,
+      "difference": 0.0916,
+      "verdict": "FALSIFIED"
+    },
+    {
+      "row": 11,
+      "metric": "context_precision",
+      "prediction": "up",
+      "current_trials": [
+        0.5595,
+        0.4206,
+        0.5587
+      ],
+      "fanout_trials": [
+        0.5818,
+        0.6096,
+        0.6096
+      ],
+      "current_range": [
+        0.4206,
+        0.5595
+      ],
+      "current_mean": 0.5129,
+      "fanout_mean": 0.6003,
+      "difference": 0.0874,
+      "verdict": "HOLDS"
+    },
+    {
+      "row": 21,
+      "metric": "context_precision",
+      "prediction": "down",
+      "current_trials": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "fanout_trials": [
+        0.9281,
+        0.9201,
+        0.8492
+      ],
+      "current_range": [
+        1.0,
+        1.0
+      ],
+      "current_mean": 1.0,
+      "fanout_mean": 0.8991,
+      "difference": -0.1009,
+      "verdict": "HOLDS"
+    },
+    {
+      "row": 9,
+      "metric": "answer_correctness",
+      "prediction": "no_drop",
+      "current_trials": [
+        0.7549,
+        0.7886,
+        0.7228
+      ],
+      "fanout_trials": [
+        0.6773,
+        0.7736,
+        0.6747
+      ],
+      "current_range": [
+        0.7228,
+        0.7886
+      ],
+      "current_mean": 0.7554,
+      "fanout_mean": 0.7085,
+      "difference": -0.0469,
+      "verdict": "FALSIFIED"
+    }
+  ],
+  "P6": {
+    "fanout_wall_s": {
+      "n": 12,
+      "p50": 6.929,
+      "min": 5.564,
+      "max": 12.353
+    },
+    "current_wall_s": {
+      "n": 12,
+      "p50": 4.945,
+      "min": 3.841,
+      "max": 8.052
+    },
+    "p50_difference_s": 1.984,
+    "fanout_context_tokens": {
+      "n": 12,
+      "p50": 12567.0,
+      "min": 11034,
+      "max": 15159
+    },
+    "current_context_tokens": {
+      "n": 12,
+      "p50": 5528.0,
+      "min": 4482,
+      "max": 9111
+    },
+    "fanout_prompt_tokens_per_run": {
+      "n": 12,
+      "p50": 27950.0,
+      "min": 24859,
+      "max": 64695
+    },
+    "current_prompt_tokens_per_run": {
+      "n": 12,
+      "p50": 15848.0,
+      "min": 10802,
+      "max": 29739
+    },
+    "fanout_contexts": {
+      "n": 12,
+      "p50": 20.0,
+      "min": 20,
+      "max": 23
+    },
+    "current_contexts": {
+      "n": 12,
+      "p50": 11.0,
+      "min": 10,
+      "max": 13
+    },
+    "branch_intervals": [
+      [
+        [
+          0.004,
+          2.277
+        ],
+        [
+          0.005,
+          2.044
+        ]
+      ],
+      [
+        [
+          0.0,
+          1.019
+        ],
+        [
+          0.001,
+          1.283
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.101
+        ],
+        [
+          0.002,
+          1.033
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.298
+        ],
+        [
+          0.002,
+          1.014
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.469
+        ],
+        [
+          0.002,
+          1.264
+        ]
+      ],
+      [
+        [
+          0.001,
+          0.545
+        ],
+        [
+          0.002,
+          1.032
+        ]
+      ],
+      [
+        [
+          0.001,
+          0.961
+        ],
+        [
+          0.002,
+          0.96
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.281
+        ],
+        [
+          0.003,
+          1.018
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.128
+        ],
+        [
+          0.002,
+          1.085
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.173
+        ],
+        [
+          0.002,
+          1.143
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.103
+        ],
+        [
+          0.003,
+          1.082
+        ]
+      ],
+      [
+        [
+          0.001,
+          1.05
+        ],
+        [
+          0.003,
+          1.034
+        ]
+      ]
+    ],
+    "tool_fired": {
+      "fanout": 3,
+      "current": 6
+    }
+  },
+  "P4": {
+    "runs": 12,
+    "exceptions": 0,
+    "injected": 12,
+    "answered": 12,
+    "empty": 0,
+    "whole_refusals": 0,
+    "failure_named": 12,
+    "output_guard_would_withhold": 0
+  },
+  "P5": {
+    "pairs": 72,
+    "identical": 72,
+    "differences": [],
+    "fanout_fired_on_non_comparison_rows": 0,
+    "memo_live_calls": {
+      "router": 24,
+      "tool": 24
+    }
+  },
+  "spend": {
+    "per_part": {
+      "P1": {
+        "chat_requests": 96,
+        "prompt_tokens": 653076,
+        "prompt_tokens_cached": 436352,
+        "completion_tokens": 7799,
+        "cost_usd": 0.069914,
+        "wall_s": 158.7
+      },
+      "P3": {
+        "chat_requests": 480,
+        "prompt_tokens": 925944,
+        "prompt_tokens_cached": 598656,
+        "completion_tokens": 45177,
+        "cost_usd": 0.121099,
+        "wall_s": 921.9
+      },
+      "P4": {
+        "chat_requests": 54,
+        "prompt_tokens": 436362,
+        "prompt_tokens_cached": 287744,
+        "completion_tokens": 4434,
+        "cost_usd": 0.046534,
+        "wall_s": 84.8
+      },
+      "P5": {
+        "chat_requests": 48,
+        "prompt_tokens": 212198,
+        "prompt_tokens_cached": 0,
+        "completion_tokens": 1998,
+        "cost_usd": 0.033029,
+        "wall_s": 78.7
+      }
+    },
+    "chat": {
+      "chat_requests": 678,
+      "prompt_tokens": 2227580,
+      "prompt_tokens_cached": 1322752,
+      "completion_tokens": 59408
+    },
+    "embedding": {
+      "P1_P4": {
+        "calls": 60,
+        "tokens": 1004
+      },
+      "P5": {
+        "calls": 24,
+        "tokens": 447
+      }
+    },
+    "cost_usd_derived": 0.2706,
+    "flag": "d (token counts x eval/COST_LEDGER.md list prices; RAGAS answer_correctness embeddings not counted)"
+  }
+}

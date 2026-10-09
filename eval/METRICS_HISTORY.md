@@ -148,6 +148,9 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)) number dataset rows 0-based, while G5's P2 list
     ([`g5_PREDICTION.md`](g5_PREDICTION.md)) and the G6 records are 1-based, so the IDLH-vs-EPA-endpoint ammonia
     question is row 8 in the G1 records and row 9 in G5's and G6's.
+  - 2026-10-08: context_recall on byte-identical contexts scored 1.0 and 0.667 (G12 row 9, trials 2–3) — second
+    recorded instance of per-row judge variance on identical input; the per-row band used in G12 P3 was the measured
+    spread for this reason.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the
@@ -343,3 +346,52 @@ each (a dropped cell, counted in per-metric n, not a zero).
 
 **Shipped:** the output guard. **Not shipped:** the input guard. Both prompts were falsified on zero-tolerance
 items, so it stays off (`INPUT_GUARD_ENABLED = False`).
+
+## G12 parallel fan-out (recorded 2026-10-08): both arms, four comparison rows — built, measured, not enabled
+- **Sources:**
+  - the pre-registration and outcome are in [`g12_PREDICTION.md`](g12_PREDICTION.md);
+  - the derived metrics are in [`fanout_metrics.json`](fanout_metrics.json).
+- **The arms:**
+  - **current:** `agent/graph.py` at the branch point;
+  - **fan-out:** the G12 enabled build.
+
+  They ran in the same process, interleaved per row, N=3 each.
+- **Scoring:** RAGAS with run_eval.py's judge, one sample at a time.
+- **Fingerprints** (all `gpt-4o-mini-2024-07-18`):
+  - generation: `fp_2fb502e36f`;
+  - decomposer: `fp_551db23bc9`;
+  - judge: mostly `fp_4e22378d6e`.
+- **Row numbering:** rows are 1-based. Row 9 is G1's 0-based row 8, the G1 regression row.
+- **The decomposition prior** ([`decomp_probe_RESULT.md`](decomp_probe_RESULT.md)) predicted no retrieval gain, and
+  none was claimed.
+
+| row | metric | current: trials 1, 2, 3 | fan-out: trials 1, 2, 3 |
+|---|---|---|---|
+| 9 | context_recall | 1.0, 1.0, 1.0 | 1.0, 1.0, 0.6667 |
+| 9 | context_precision | 0.886, 0.6974, 0.7159 | 0.4359, 0.6967, 0.6967 |
+| 9 | answer_correctness | 0.7549, 0.7886, 0.7228 | 0.6773, 0.7736, 0.6747 |
+| 10 | context_recall | 1.0, 1.0, 1.0 | 1.0, 1.0, 1.0 |
+| 10 | context_precision | 0.7611, 0.7611, 0.7454 | 0.8649, 0.8115, 0.866 |
+| 10 | answer_correctness | 0.9148, 0.9126, 0.9126 | 0.9291, 0.8442, 0.9295 |
+| 11 | context_recall | 1.0, 1.0, 1.0 | 1.0, 1.0, 1.0 |
+| 11 | context_precision | 0.5595, 0.4206, 0.5587 | 0.5818, 0.6096, 0.6096 |
+| 11 | answer_correctness | 0.6668, 0.6725, 0.8572 | 0.6719, 0.6719, 0.6719 |
+| 21 | context_recall | 1.0, 1.0, 1.0 | 1.0, 1.0, 1.0 |
+| 21 | context_precision | 1.0, 1.0, 1.0 | 0.9281, 0.9201, 0.8492 |
+| 21 | answer_correctness | 0.9553, 0.9572, 0.9553 | 0.5798, 0.5287, 0.4586 |
+
+**Verdicts (P3, refinement A).**
+- **FALSIFIED** on 4 of 9 items:
+  - row 9 recall;
+  - row 9 precision, which was predicted to rise;
+  - row 10 precision, which was predicted to fall;
+  - row 9 answer correctness.
+- **HOLDS:**
+  - recall on rows 10, 11 and 21;
+  - precision rising on row 11 (+0.087) and falling on row 21 (−0.101).
+- **Row 21's correctness was not a registered item.** It is recorded as an observation.
+
+**Other measured columns.**
+- **Wall time at p50:** fan-out 6.93 s against 4.95 s, so +1.98 s (P6 FALSIFIED).
+- **Context handed to generation:** 20–23 chunks against 10–13, and 12,567 tokens against 5,528 at p50.
+- **Both compared sources present:** 12/12 against 6/12 (P2 HOLDS).

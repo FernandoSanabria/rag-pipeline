@@ -108,6 +108,23 @@ graph TD;
 
 **Two safety properties are visible in the graph:** `source_scoped_retrieve` falls back to the direct full-corpus path on a filter failure or empty result, and `generate` short-circuits on `retrieval_error` — so a router hiccup or a bad metadata filter degrades to a valid answer, never a 500.
 
+**Parallel fan-out for comparisons (G12) — built, measured, off by default.**
+
+**What it is.** A dispatch-and-aggregate node, not a hierarchy of agents:
+- a wording gate plus one `gpt-4o-mini` decomposer split a comparison question into 2–3 sub-questions;
+- LangGraph's `Send` runs one retrieval per sub-question concurrently;
+- a join merges the results before generation;
+- a failing branch degrades gracefully.
+
+**What it gained.** Measured on the four comparison questions of the frozen 28, 3 trials per arm, it retrieved both compared sources in **12/12** runs, against **6/12** for today's single query.
+
+**What it cost.**
+- **Latency:** **+1.98 s** at p50 over 12 runs per arm.
+- **Metrics:** **4 of 9** pre-registered per-row metric predictions were falsified. That includes the IDLH comparison's answer correctness, down 0.047 over N=3.
+- **Row 21 (unregistered):** answer correctness fell from 0.96 to 0.46–0.58.
+
+**Where it stands.** It ships switched off with `FANOUT_ENABLED = False` in `agent/graph.py`, and the graph above is the shipped one. The details are in [`eval/g12_PREDICTION.md`](eval/g12_PREDICTION.md) and [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).
+
 **Observability:** the path taken is inspectable, not just diagrammed — LangSmith traces (`@traceable` spans, one per node) and `state["trace_notes"]` (one breadcrumb per node) both record the route each request actually followed.
 
 ## Corpus & provenance

@@ -1,7 +1,17 @@
-"""LangGraph agent graph — router + retrieval strategies + a bounded tool-calling loop (G1).
+"""LangGraph agent graph — router + retrieval strategies + a bounded tool-calling loop (G1) + a parallel fan-out
+for comparison questions (G12).
 
     START -> router -> (direct) retrieve | (source_scoped) source_scoped_retrieve
+                     | (comparison-worded) decompose -> Send x N -> branch_retrieve -> join   [or -> retrieve]
           -> tool_decide <-> tool_exec (bounded loop) -> generate_node -> END
+
+G12 is BUILT, MEASURED and SWITCHED OFF (FANOUT_ENABLED = False): the shipped graph is the pre-G12 one, and the bracketed
+fan-out path above exists only in the enabled build (eval/g12_PREDICTION.md, Outcome). It is a DISPATCH-AND-AGGREGATE
+node, not a hierarchy of agents: a deterministic wording gate sends comparison-worded
+direct questions to one decomposer call; 2-3 sub-questions are dispatched concurrently with LangGraph's `Send`, each
+branch runs ONE retrieval (source-scoped when the sub-question names a document), and `join_node` rank-interleaves
+the surviving branches, dedups by `chunk_content_key`, and writes `retrieved` once. Anything the gate or decomposer
+declines takes today's single-query path unchanged. Design and degradation contract: eval/g12_design.md.
 
 G1 adds the tool loop between retrieval and generation. `generate_node` and `src.generate.generate` are
 UNTOUCHED (the v4 byte-repro path). Because generate grounds ONLY on `retrieved`, a tool output reaches the
@@ -47,14 +57,17 @@ Fresh state per call (invariant (a) in agent/state.py): `ask()` invokes the comp
 import json
 import logging
 import os
+import re
+import time
 from functools import lru_cache
 from pathlib import Path
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from agent.state import AgentState, fresh_state
+from agent.state import AgentState, chunk_content_key, fresh_state
 from agent.tools import TOOL_SCHEMAS, ToolError, run_tool
 from src.config import get_settings
 from src.generate import generate
@@ -142,6 +155,169 @@ def router_node(state: AgentState) -> dict:
 
 def _route(state: AgentState) -> str:
     return "source_scoped" if state["route"] == "source_scoped" else "direct"
+
+
+# ---- G12 parallel fan-out: dispatch-and-aggregate (eval/g12_design.md) --------------------------------------------
+# Stage 1 of the gate. Deterministic, so a question without comparison wording never calls the decomposer and takes
+# the pre-G12 path byte-for-byte. Registered in eval/g12_PREDICTION.md.
+COMPARISON_GATE = re.compile(
+    r"\b(compare[sd]?|comparison|versus|vs\.?|agree|disagree|differ|differs|difference|higher than|lower than"
+    r"|stricter than)\b",
+    re.IGNORECASE,
+)
+MAX_BRANCHES = 3
+
+# G12 ships SWITCHED OFF. The fan-out is built and measured, but on the four comparison rows it was slower (+1.98 s
+# p50) and two answers got worse (row 9's correctness, and an unregistered drop on row 21): eval/g12_PREDICTION.md,
+# Outcome. With the flag off, `_build_graph` leaves the decompose/branch/join nodes OUT of the compiled graph, so the
+# shipped graph has the pre-G12 topology exactly; turning it on needs a new pre-registration.
+FANOUT_ENABLED = False
+
+
+def _route_fanout(state: AgentState) -> str:
+    """The router edge of the ENABLED build only: G12 stage 1, the deterministic wording gate, on the direct route."""
+    route = _route(state)
+    if route == "direct" and COMPARISON_GATE.search(state["question"]):
+        return "decompose"
+    return route
+
+
+class SubQuestion(BaseModel):
+    """One branch of a decomposed comparison (field descriptions frozen with eval/g12_PREDICTION.md)."""
+
+    question: str = Field(description="a self-contained question asking for ONE source's value or requirement")
+    source_doc_id: str | None = Field(default=None, description=(
+        "the one known document this sub-question asks about, else null"))
+
+
+class Decomposition(BaseModel):
+    """Decomposer output — stage 2 of the gate (field descriptions frozen with eval/g12_PREDICTION.md)."""
+
+    comparison: bool = Field(description=(
+        "true only if the question compares a value or requirement across two or more sources"))
+    sub_questions: list[SubQuestion] = Field(description=(
+        "2 or 3 sub-questions when comparison is true, else an empty list"))
+
+
+# Frozen with the G12 pre-registration. Never edit it after the first scored run; a change is a new
+# pre-registration. tests/test_fanout.py asserts it is byte-identical to the registered `text decomposer-prompt`.
+DECOMPOSER_PROMPT = "\n".join([
+    "You split comparison questions for an industrial-safety document search. A comparison question asks how a value or requirement stated by one source compares with, differs from, or agrees with the same kind of value or requirement in another source (for example a NIOSH limit versus an OSHA limit, or an SDS versus a regulation).",
+    "Rules:",
+    "- If the question is a comparison, set comparison = true and write 2 or 3 sub-questions, ONE per compared source. Each sub-question must be self-contained (name the chemical or equipment), ask only for that one source's value or requirement, and must not ask for the comparison itself.",
+    "- For each sub-question, set source_doc_id to exactly one of the known ids below when it asks about exactly one of these documents; otherwise null.",
+    "- If the question is not a comparison, set comparison = false and sub_questions = []. A question with two parts that does not compare the same kind of value across sources is NOT a comparison.",
+    "",
+    "Known documents (source_doc_id: title):",
+    "{catalog}",
+    "",
+    "Question: {question}",
+])
+
+
+@lru_cache(maxsize=1)
+def _decomposer_llm():
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(model="gpt-4o-mini", temperature=0).with_structured_output(Decomposition, method="json_schema")
+
+
+def decompose_node(state: AgentState) -> dict:
+    """Stage 2 of the gate: one decomposer call. Fans out only on comparison=true with 2-3 sub-questions; anything
+    else (error, no output, not a comparison, out-of-range count) leaves `sub_questions` empty so `_dispatch` takes
+    today's single-query `retrieve` — decomposition failing never refuses a question (R4)."""
+    question = state["question"]
+    started = time.monotonic()
+    try:
+        d = _decomposer_llm().invoke(DECOMPOSER_PROMPT.format(catalog=_doc_catalog(), question=question))
+    except Exception as exc:  # never abort — fall back to the single-query path
+        logger.warning("decompose_node error: %s", type(exc).__name__)
+        return {"sub_questions": [], "trace_notes": [f"decompose: ERROR {type(exc).__name__} -> single-query"]}
+    elapsed = time.monotonic() - started
+    if d is None:
+        return {"sub_questions": [], "trace_notes": ["decompose: no structured output -> single-query"]}
+    n = len(d.sub_questions)
+    if not d.comparison:
+        return {"sub_questions": [], "trace_notes": [f"decompose: not a comparison -> single-query ({elapsed:.2f}s)"]}
+    if not 2 <= n <= MAX_BRANCHES:
+        return {"sub_questions": [],
+                "trace_notes": [f"decompose: {n} sub-questions, outside 2..{MAX_BRANCHES} -> single-query ({elapsed:.2f}s)"]}
+    plans, notes = [], []
+    for sq in d.sub_questions:
+        doc = sq.source_doc_id or ""
+        if doc and doc not in _known_doc_ids():  # same check the router makes: an unknown id is not trusted
+            notes.append(f"decompose: unknown source_doc_id {doc!r} -> unscoped")
+            doc = ""
+        plans.append({"question": sq.question, "source_doc_id": doc})
+    docs = ", ".join(p["source_doc_id"] or "unscoped" for p in plans)
+    notes.insert(0, f"decompose: comparison -> {n} sub-questions [{docs}] ({elapsed:.2f}s)")
+    return {"sub_questions": plans, "route": "decomposed", "trace_notes": notes}
+
+
+def _dispatch(state: AgentState):
+    """One `Send` per sub-question plan, all in the same super-step (so LangGraph runs them concurrently), each
+    carrying the dispatch time so branches can report overlapping intervals. No plans -> the single-query path."""
+    plans = state["sub_questions"]
+    if not plans:
+        return "retrieve"
+    t0 = time.monotonic()
+    n = len(plans)
+    return [Send("branch_retrieve", {"branch": i, "n": n, "question": p["question"],
+                                     "source_doc_id": p["source_doc_id"], "t0": t0})
+            for i, p in enumerate(plans, 1)]
+
+
+def branch_retrieve_node(payload: dict) -> dict:
+    """ONE retrieval for one sub-question — not an agent: no planning, no tools. Scoped when the plan names a
+    document. Records its outcome (chunks or the exception class) and its interval in the `fanout` channel; the join
+    decides what to do with a failure (R4)."""
+    i, n, question, doc, t0 = (payload["branch"], payload["n"], payload["question"],
+                               payload["source_doc_id"], payload["t0"])
+    k = get_settings().retrieval_k
+    start = time.monotonic() - t0
+    chunks, error = [], None
+    try:
+        if doc and doc not in _known_doc_ids():  # only reachable by injection: decompose already validated ids
+            raise ValueError(f"unknown source_doc_id {doc!r}")
+        chunks = dense_search(question, k=k, source_doc_id=doc) if doc else dense_search(question, k=k)
+    except Exception as exc:  # a failed branch is a record, never an abort
+        logger.warning("branch_retrieve[%d/%d] error: %s", i, n, type(exc).__name__)
+        error = type(exc).__name__
+    end = time.monotonic() - t0
+    scope = f"source_scoped:{doc}" if doc else "unscoped"
+    outcome = f"ERROR {error}" if error else f"{len(chunks)} chunks"
+    record = {"branch": i, "n": n, "sub_question": question, "source_doc_id": doc, "chunks": chunks,
+              "error": error, "t_start": round(start, 3), "t_end": round(end, 3)}
+    return {"fanout": [record],
+            "trace_notes": [f"fanout[{i}/{n}] retrieve({scope}) t+{start:.3f}s..t+{end:.3f}s -> {outcome}"]}
+
+
+def join_node(state: AgentState) -> dict:
+    """Aggregate the branches: rank-interleave the survivors (round-robin by rank, in the decomposer's order), dedup
+    by `chunk_content_key` (first occurrence wins), and write `retrieved` ONCE. One surviving branch is enough to
+    generate; if every branch failed, take the existing retrieval-error path (empty answer, no generate call)."""
+    records = {}
+    for rec in state["fanout"]:
+        records[rec["branch"]] = rec  # keyed by branch: a retried branch's record replaces, never doubles
+    ordered = [records[b] for b in sorted(records)]
+    ok = [r for r in ordered if r["error"] is None]
+    failed = ", ".join(f"fanout[{r['branch']}/{r['n']}] {r['error']}" for r in ordered if r["error"] is not None)
+    n = len(ordered)
+    if not ok:
+        return {"retrieved": [], "retrieval_error": True,
+                "trace_notes": [f"join: 0/{n} branches ok; failed {failed} -> retrieval_error"]}
+    seen, joined, total = set(), [], 0
+    for rank in range(max(len(r["chunks"]) for r in ok)):
+        for r in ok:
+            if rank < len(r["chunks"]):
+                total += 1
+                key = chunk_content_key(r["chunks"][rank])
+                if key not in seen:
+                    seen.add(key)
+                    joined.append(r["chunks"][rank])
+    head = f"join: {len(ok)}/{n} branches ok" + (f"; failed {failed}" if failed else "")
+    return {"retrieved": joined,
+            "trace_notes": [f"{head} -> {total} chunks, {len(joined)} after dedup ({total - len(joined)} duplicates)"]}
 
 
 def source_scoped_retrieve_node(state: AgentState) -> dict:
@@ -335,10 +511,17 @@ def tool_exec_node(state: AgentState) -> dict:
     }
 
 
-@lru_cache(maxsize=1)
 def _compiled_graph():
-    """Build + compile the graph once (stateless; state is per-invoke).
+    """The graph the service runs: the build selected by FANOUT_ENABLED (off in the shipped app)."""
+    return _build_graph(FANOUT_ENABLED)
+
+
+@lru_cache(maxsize=2)
+def _build_graph(fanout: bool):
+    """Build + compile the graph once per variant (stateless; state is per-invoke). With fanout=False the G12 nodes
+    and edges are not added at all, so the compiled topology is exactly the pre-G12 one.
     START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve
+                   | (comparison-worded, G12) decompose → Send × N → branch_retrieve → join [or → retrieve]
           → tool_decide ⇄ tool_exec (G1 loop) → generate → END.
     The tool loop sits BETWEEN retrieval and generation and is conditional: a question needing no tool passes
     tool_decide straight to generate, so the direct path byte-reproduces v4 (generate_node and its inputs are
@@ -348,12 +531,24 @@ def _compiled_graph():
     builder.add_node("router", router_node)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("source_scoped_retrieve", source_scoped_retrieve_node)
+    if fanout:
+        builder.add_node("decompose", decompose_node)
+        builder.add_node("branch_retrieve", branch_retrieve_node)
+        builder.add_node("join", join_node)
     builder.add_node("tool_decide", tool_decide_node)
     builder.add_node("tool_exec", tool_exec_node)
     builder.add_node("generate", generate_node)
     builder.add_edge(START, "router")
-    builder.add_conditional_edges("router", _route,
-                                  {"source_scoped": "source_scoped_retrieve", "direct": "retrieve"})
+    if fanout:
+        builder.add_conditional_edges("router", _route_fanout,
+                                      {"source_scoped": "source_scoped_retrieve", "direct": "retrieve",
+                                       "decompose": "decompose"})
+        builder.add_conditional_edges("decompose", _dispatch, ["branch_retrieve", "retrieve"])
+        builder.add_edge("branch_retrieve", "join")
+        builder.add_edge("join", "tool_decide")
+    else:
+        builder.add_conditional_edges("router", _route,
+                                      {"source_scoped": "source_scoped_retrieve", "direct": "retrieve"})
     builder.add_edge("retrieve", "tool_decide")
     builder.add_edge("source_scoped_retrieve", "tool_decide")
     builder.add_conditional_edges("tool_decide", _route_tools,
@@ -363,11 +558,15 @@ def _compiled_graph():
     return builder.compile()
 
 
-def _routing_reason(route: str, source_doc_id: str) -> str | None:
+def _routing_reason(route: str, source_doc_id: str, sub_questions: list[dict] | None = None) -> str | None:
     """Human-readable rationale for the route taken — the /ask/agent transparency payload (2D).
-    None on the direct path (nothing to explain); names the document on the source-scoped path."""
+    None on the direct path (nothing to explain); names the document on the source-scoped path; lists the
+    sub-questions (and the document each was scoped to) on the G12 decomposed path."""
     if route == "source_scoped" and source_doc_id:
         return f"Question attributed to a single named document: {_doc_titles().get(source_doc_id, source_doc_id)}"
+    if route == "decomposed" and sub_questions:
+        parts = "; ".join(f"[{p['source_doc_id'] or 'all documents'}] {p['question']}" for p in sub_questions)
+        return f"Comparison split into {len(sub_questions)} sub-questions: {parts}"
     return None
 
 
@@ -397,5 +596,5 @@ def ask(question: str) -> dict:
         "chunks": retrieved,
         "route": route,
         "source_doc_id": source_doc_id,
-        "routing_reason": _routing_reason(route, source_doc_id),
+        "routing_reason": _routing_reason(route, source_doc_id, state["sub_questions"]),
     }

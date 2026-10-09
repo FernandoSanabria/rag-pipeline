@@ -190,6 +190,56 @@ in `api/main.py`.
   multi-turn attacks.
 - The guardrail set and both classifier prompts were written by the same author. It is a regression set, not a
   benchmark.
-- With LangSmith tracing on, every classifier call prints a Pydantic serializer warning
-  (`PydanticSerializationUnexpectedValue`, `field_name='parsed'`). It is cosmetic and appears only with tracing on.
-  With the input guard off, the service makes no classifier call.
+- Every `json_schema` structured-output call prints a Pydantic serializer warning
+  (`PydanticSerializationUnexpectedValue`, `field_name='parsed'`). **Corrected 2026-10-08:**
+  - G12's R2 probe showed it appears **with tracing off too, with or without `include_raw`**. This line previously
+    said it appeared only with tracing on.
+  - So the production router emits it as well.
+  - It is cosmetic.
+
+## G12 parallel fan-out — built, measured, not enabled
+Recorded 2026-10-08.
+- The design is [`g12_design.md`](g12_design.md). The pre-registration and its outcome are in
+  [`g12_PREDICTION.md`](g12_PREDICTION.md), whose pre-registration commit is tagged `prereg/g12` at PR time.
+- It is a **dispatch-and-aggregate node**, not a hierarchy of agents. It ships with `FANOUT_ENABLED = False`, so the
+  served graph is the pre-G12 one.
+- This is **the same pattern as G6's input guard** (above): built, measured, not shipped.
+- Rows are 1-based.
+
+**Shown, on the four comparison rows (9, 10, 11, 21) and N=3 per arm:**
+- the gate and decomposer dispatched on 12/12, and on 0/72 other rows (P1);
+- both compared sources were retrieved 12/12, against 6/12 single-query (P2);
+- an injected failing branch was tolerated and named 12/12 (P4);
+- the other 24 rows passed through byte-identical, 72/72 (P5);
+- the branches overlap in time, visible in the trace intervals.
+
+**Why it is not enabled.**
+- **Four of the nine pre-registered per-row metric predictions were falsified (P3):**
+  - row 9 context recall fell 0.11. Trials 2 and 3 had byte-identical contexts and scored 1.0 and 0.667, so this is
+    judge variance;
+  - row 9 context precision fell 0.157 where a rise was predicted;
+  - row 10 context precision rose 0.092 where a fall was predicted;
+  - **row 9 answer correctness fell 0.047.** Row 9 is the IDLH comparison and G1's regression row (G1's 0-based
+    row 8).
+- **Latency (P6, falsified):** +1.98 s at p50.
+  - The decomposer took 1.17–1.35 s live.
+  - The context handed to generation roughly doubles: 12,567 tokens against 5,528 at p50.
+- **Row 21 regressed (unregistered).** Answer correctness fell from 0.955–0.957 to 0.46–0.58, and 1 of 3 answers
+  wrongly concluded that the Airgas SDS and OSHA disagree.
+  - The hypothesis, **untested**, is OSHA Table Z-1's raw "(C)1 (C)3" line, which appears only in the fan-out
+    context.
+
+**A finding about this corpus.**
+- Context recall is already saturated at k=10 on all four comparison rows, so a second retrieval pass has nothing to
+  recover.
+- What the fan-out adds is context: the sources' own value lines, plus about 10 more chunks.
+- That extra context hurt 2 of 4 rows (9 and 21).
+- This is consistent with the decomposition prior ([`decomp_probe_RESULT.md`](decomp_probe_RESULT.md)), which found no
+  retrieval lever in decomposition either.
+
+**Untested follow-ons:**
+- per-branch depth of k/n, keeping the total at k;
+- a join that keeps only each branch's top-m chunks;
+- chunk hygiene for OSHA Table Z-1.
+
+Any of them needs a new pre-registration before the switch is turned on.

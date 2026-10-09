@@ -89,16 +89,17 @@ def _tool_llm_no_calls(monkeypatch):
     monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub())
 
 
-def test_fresh_state_initializes_all_twelve_channels():
-    """State construction contract: fresh_state seeds ALL 12 channels with correct defaults (9 original +
-    the 3 G1 tool channels), so no node ever reads an unset channel and the add-reducer accumulators
-    (`retrieved`, `trace_notes`, `tool_results`) start EMPTY (invariant (a))."""
+def test_fresh_state_initializes_all_thirteen_channels():
+    """State construction contract: fresh_state seeds ALL 13 channels with correct defaults (9 original +
+    the 3 G1 tool channels + the G12 `fanout` staging channel), so no node ever reads an unset channel and the
+    add-reducer accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY (invariant (a))."""
     st = fresh_state("what is X?")
     assert set(st) == {
         "question", "sub_questions", "route", "source_doc_id", "retrieval_error",
         "retrieved", "answer", "citations", "trace_notes",
-        "tool_calls", "tool_results", "tool_iterations",
+        "tool_calls", "tool_results", "tool_iterations", "fanout",
     }
+    assert st["fanout"] == []               # G12: add-reducer accumulator starts empty
     assert st["question"] == "what is X?"
     assert st["route"] == "direct"         # 2A / v4 direct path
     assert st["source_doc_id"] == ""        # 2C: no source-scope on the direct path
@@ -454,3 +455,39 @@ def test_tool_loop_hits_cap_and_terminates(monkeypatch):
     assert state["tool_iterations"] == graph.CAP                             # stopped exactly at the cap
     assert any("CAP_REACHED" in n for n in state["trace_notes"])
     gen.assert_called_once()                                                  # generated after the cap
+
+
+# ---- G12: the fan-out ships switched off ----------------------------------------------------------------------------
+# The pre-G12 topology, recorded from scripts/render_graph.py at the branch point (it is also the README's graph block).
+PRE_G12_NODES = {"__start__", "__end__", "router", "retrieve", "source_scoped_retrieve", "tool_decide", "tool_exec",
+                 "generate"}
+PRE_G12_EDGES = {("__start__", "router"), ("generate", "__end__"), ("retrieve", "tool_decide"), ("router", "retrieve"),
+                 ("router", "source_scoped_retrieve"), ("source_scoped_retrieve", "tool_decide"),
+                 ("tool_decide", "generate"), ("tool_decide", "tool_exec"), ("tool_exec", "tool_decide")}
+
+
+def test_shipped_graph_topology_is_pre_g12():
+    g = graph._compiled_graph().get_graph()
+    assert set(g.nodes) == PRE_G12_NODES
+    assert {(e.source, e.target) for e in g.edges} == PRE_G12_EDGES
+
+
+def test_fanout_is_off_in_the_shipped_graph(monkeypatch):
+    """G12 is built and measured but not enabled (eval/g12_PREDICTION.md, Outcome): a comparison-worded question takes
+    the pre-G12 direct path and the decomposer is never called."""
+    assert graph.FANOUT_ENABLED is False
+    calls = []
+
+    class _Decomposer:
+        def invoke(self, prompt):
+            calls.append(prompt)
+            raise AssertionError("the decomposer must not run in the shipped graph")
+
+    monkeypatch.setattr(graph, "_decomposer_llm", lambda: _Decomposer())
+    gen = _stub_ok(monkeypatch)
+    question = "What is the exposure limit for chlorine under OSHA versus NIOSH?"
+    state = graph._compiled_graph().invoke(fresh_state(question))
+    assert calls == []
+    assert state["route"] == "direct" and state["fanout"] == []
+    assert not any(n.startswith(("decompose", "fanout[", "join")) for n in state["trace_notes"])
+    gen.assert_called_once_with(question, format_contexts(CHUNKS))

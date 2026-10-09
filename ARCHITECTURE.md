@@ -70,7 +70,9 @@ phase0/
   Pinecone ingestion).
 - **[`agent/`](agent/graph.py)** — the LangGraph layer; every node wraps an existing `src/`
   capability and reimplements nothing. `graph.py` (compiled graph + the `ask()` entry adapter),
-  `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools).
+  `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools). `graph.py` also
+  holds the G12 fan-out nodes (`decompose`, `branch_retrieve`, `join`), compiled in only when `FANOUT_ENABLED` is set;
+  it ships off, so the served graph is the pre-G12 one.
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
   `POST /mcp`, the G5 MCP server over streamable HTTP),
   `citations.py`, `confidence.py`, `schemas.py`, and `guards.py` (G6: the output guard, applied to both endpoints
@@ -199,6 +201,10 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     measured and switched off. Design in [`eval/g6_design.md`](eval/g6_design.md); the v1 and v2
     pre-registrations and their outcomes are in [`eval/g6_PREDICTION.md`](eval/g6_PREDICTION.md). This file does not
     carry a result those files own.
+  - **G12 = the parallel fan-out for comparison questions** (dispatch-and-aggregate, in
+    [`agent/graph.py`](agent/graph.py)). Built, measured and switched off. The design is in
+    [`eval/g12_design.md`](eval/g12_design.md); the pre-registration and its outcome are in
+    [`eval/g12_PREDICTION.md`](eval/g12_PREDICTION.md). This file does not carry a result those files own.
   - **G10b = a checkpointer + human-approval gate.** Not built; **pre-designed** in
     [`eval/replay_safety_design.md`](eval/replay_safety_design.md) (interrupt/resume, one-thread-per-
     question isolation, the persistence hazard on a no-persistent-disk host).

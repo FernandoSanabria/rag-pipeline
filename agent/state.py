@@ -11,13 +11,14 @@ A LangGraph channel with NO reducer is *last-write-wins* (overwrite). A channel 
 `Annotated[T, add]` is *accumulate* (the reducer merges the prior value with each node's
 return instead of replacing it). Two fields accumulate; the rest overwrite:
 
-TWELVE channels — nine overwrite, three accumulate. (`source_doc_id` was added in 2C and the three `tool_*`
-channels in G1; the earlier "eight" prose predated both — eval/replay_safety_design.md §1 flagged the stale
-count. It is corrected here.)
+THIRTEEN channels — nine overwrite, four accumulate. (`source_doc_id` was added in 2C, the three `tool_*`
+channels in G1, and `fanout` in G12; the earlier "eight" prose predated all of them — eval/replay_safety_design.md
+§1 flagged the stale count. It is corrected here.)
 
   field            reducer        why
   question         overwrite      set once at entry, read-only thereafter
-  sub_questions    overwrite      produced whole by ONE node (decompose); no fan-in
+  sub_questions    overwrite      produced whole by ONE node (decompose); no fan-in. G12: a list of
+                                  {question, source_doc_id} plans ("" = unscoped); [] when not decomposed
   route            overwrite      routing decision; router writes it, source-scoped retrieve may
                                   DOWNGRADE it to "direct" on an execution fallback (2D) — both
                                   sequential (never parallel), so overwrite stays correct
@@ -33,6 +34,8 @@ count. It is corrected here.)
   tool_results     add (ACCUM)    G1: results across loop iterations must CONCATENATE; no dedup (a re-run
                                   genuinely ran — like trace_notes)
   tool_iterations  overwrite      G1: loop counter; tool_exec increments; idempotent last-write
+  fanout           add (ACCUM)    G12: one record per parallel branch {branch, n, sub_question, source_doc_id,
+                                  chunks, error, t_start, t_end}; the join reads it and writes `retrieved` ONCE
 
 Why `retrieved` MUST accumulate (the #1 silent LangGraph bug)
 -------------------------------------------------------------
@@ -46,7 +49,13 @@ which is exactly why it is the classic LangGraph footgun. `Annotated[list[dict],
 the branches concatenate, so all sub-queries' chunks survive to synthesis.
 Tradeoff of `add` here: it concatenates blindly, so N overlapping sub-queries × k produce
 duplicates (facets of one question retrieve many of the same chunks). Accumulation is correct;
-DEDUP is the 2B synthesize_node's job — see `chunk_content_key` below for the recorded basis.
+DEDUP is the join's job — see `chunk_content_key` below for the recorded basis.
+
+G12, as built (eval/g12_design.md R3): the parallel branches do NOT write `retrieved` directly. Each appends one
+record to the `fanout` staging channel; `join_node` rank-interleaves the surviving branches, dedups by
+`chunk_content_key`, and writes `retrieved` exactly once. The join needs each branch's outcome (error, timing),
+which plain `add` on `retrieved` cannot carry, and no pre-G12 path writes `fanout`, so their `retrieved` is
+byte-identical by construction. `retrieved` keeps `add` because tool_exec still appends after retrieval.
 
 Why `trace_notes` accumulates: the eval harness needs to assert on the PATH TAKEN (decomposed
 vs direct), not just the final answer. Every node appends one breadcrumb; parallel branches
@@ -57,7 +66,7 @@ single request is short-lived; it is never persisted across requests (see invari
 Why the other six overwrite: each is written by exactly ONE node on any given path, so there
 is no fan-in to merge. Overwrite is the simplest correct choice; its only hazard is that two
 *concurrent* branches writing the same channel would conflict — none of these six are ever
-written from a parallel branch (only `retrieved` and `trace_notes` are), so overwrite is safe.
+written from a parallel branch (only `fanout` and `trace_notes` are, in G12), so overwrite is safe.
 Using `add` on them instead would be actively wrong: re-running a node (e.g. a retry) would
 append a second `answer`/`sub_questions`/`route`/`retrieval_error` rather than replace it.
 
@@ -93,7 +102,7 @@ not). Keep them as two separate functions: when 2B moves citation assembly into 
 api/citations.py's page-level (document, page) dedup for citations — do NOT merge it with
 `chunk_content_key`. Two dedups, two granularities, by design.
 `page`/`source_doc_id` may be None and `text` may be "" — all are stable, hashable values.
-The basis is recorded here as `chunk_content_key`; the actual dedup lives in synthesize_node.
+The basis is recorded here as `chunk_content_key`; the actual dedup lives in agent/graph.py's join_node (G12).
 
 --------------------------------------------------------------------------------
 G1 tool-loop channels — replay rules (per eval/replay_safety_design.md §4)
@@ -112,6 +121,14 @@ tool_iterations (overwrite / LastValue): idempotent counter; a retried write re-
 Also NEW in G1: tool_exec is a SECOND writer of `retrieved` (add), appending synthetic tool-output chunks
 (source_doc_id="tool:<name>", page=None) so the FROZEN generate_node grounds on tool results without being
 touched. Inherits retrieved's §4 policy; retrieved's reducer STAYS operator.add (RemoveChunk deferred, §5).
+
+--------------------------------------------------------------------------------
+G12 fan-out channel — replay rule
+--------------------------------------------------------------------------------
+fanout (add, ACCUM): one record per branch, written only by branch_retrieve_node on the fan-out path. The join keys
+  records by branch index (last record wins) and chunks by `chunk_content_key`, so an in-run retry of a branch
+  cannot double its evidence; fresh_state per invocation (invariant (a)) blocks cross-row leaks. Never read outside
+  the graph.
 """
 
 from operator import add
@@ -122,8 +139,8 @@ class AgentState(TypedDict):
     """State channels for the Phase 2 LangGraph pipeline. See module docstring for reducer rationale."""
 
     question: str                              # original user question — set at entry, read-only after
-    sub_questions: list[str]                   # decomposition output; [] when not decomposed (v4 path)
-    route: str                                 # "direct" | "source_scoped" | "decomposed" — router sets it; source-scoped retrieve may downgrade to "direct" on 2D fallback (sequential)
+    sub_questions: list[dict]                  # G12 decomposition plans {question, source_doc_id}; [] when not decomposed
+    route: str                                 # "direct" | "source_scoped" | "decomposed" — router sets it; source-scoped retrieve may downgrade to "direct" on 2D fallback; decompose sets "decomposed" when it fans out (G12; all sequential)
     source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (router; cleared by 2D fallback)
     retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
     retrieved: Annotated[list[dict], add]      # ACCUMULATE across parallel sub-query retrievals
@@ -134,6 +151,8 @@ class AgentState(TypedDict):
     tool_calls: list[dict]                     # tool calls requested THIS iteration (overwrite: tool_decide sets, tool_exec clears)
     tool_results: Annotated[list[dict], add]   # ACCUMULATE tool results across loop iterations
     tool_iterations: int                       # loop counter (overwrite: tool_exec increments)
+    # --- G12 parallel fan-out (dispatch-and-aggregate; eval/g12_design.md) ---
+    fanout: Annotated[list[dict], add]         # ACCUMULATE one record per branch; join_node writes `retrieved` once
 
 
 # `citations` is intentionally NOT populated by any node in the 2A skeleton. Citation ownership
@@ -163,8 +182,8 @@ class AgentState(TypedDict):
 def fresh_state(question: str) -> AgentState:
     """Build a brand-new AgentState for a single invocation (invariant (a)).
 
-    Initializes ALL TWELVE channels explicitly, so no node ever reads an unset channel and
-    KeyErrors. The accumulators (`retrieved`, `trace_notes`, `tool_results`) start EMPTY so no evidence
+    Initializes ALL THIRTEEN channels explicitly, so no node ever reads an unset channel and
+    KeyErrors. The accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY so no evidence
     leaks in from a prior call, `route` defaults to "direct" (the 2A / v4 path), `retrieval_error`
     defaults to False, and the G1 tool loop starts with no calls and zero iterations. The entry adapter
     that wraps the graph (to mirror src.pipeline.ask's per-question contract) MUST call this per question;
@@ -183,6 +202,7 @@ def fresh_state(question: str) -> AgentState:
         tool_calls=[],
         tool_results=[],
         tool_iterations=0,
+        fanout=[],
     )
 
 

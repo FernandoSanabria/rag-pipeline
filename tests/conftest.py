@@ -24,3 +24,23 @@ def _classifier_in_scope(monkeypatch):
     from api import guards
 
     monkeypatch.setattr(guards, "classify_with_meta", lambda question: ("in_scope", {}))
+
+
+class _StaticLLM:
+    """A structured-output stub whose .invoke returns one fixed value (no network)."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def invoke(self, prompt):
+        return self.value
+
+
+@pytest.fixture(autouse=True)
+def _decomposer_declines(monkeypatch):
+    """G12: the decomposer is a gpt-4o-mini call made for comparison-worded questions. Default it to "not a
+    comparison" for every test, so the suite never reaches the network; tests/test_fanout.py overrides it."""
+    from agent import graph
+
+    monkeypatch.setattr(graph, "_decomposer_llm",
+                        lambda: _StaticLLM(graph.Decomposition(comparison=False, sub_questions=[])))
