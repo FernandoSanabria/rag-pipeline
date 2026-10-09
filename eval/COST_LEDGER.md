@@ -173,3 +173,17 @@ Token counts are measured per run by LangChain's OpenAI callback in `scripts/gua
 **Cache note.** Memoizing the query embedding made the repeated trials of a question send byte-identical
 generation prompts. OpenAI's prompt cache therefore served 79% of the v1 run's prompt tokens (2,876,928 of
 3,652,803) at the cached price.
+
+## E. G12 parallel fan-out (2026-10-08) [d, from measured token counts × list price; not dashboard-reconciled]
+| item | chat requests | prompt tokens (cached) | completion tokens | cost | flag |
+|---|--:|--:|--:|--:|:--|
+| R2 decomposer probe (28 rows × 3) | 84 | 75,399 (—) | 1,461 | $0.0122 | d |
+| R2b retrievals and the warning check | 2 | — | — | <$0.001 | d (estimate) |
+| run — P1, four rows × 3 × 2 arms | 96 | 653,076 (436,352) | 7,799 | $0.0699 | d |
+| run — P3, RAGAS scoring of the 24 P1 answers | 480 | 925,944 (598,656) | 45,177 | $0.1211 | d |
+| run — P4, injected failing branch, 12 runs | 54 | 436,362 (287,744) | 4,434 | $0.0465 | d |
+| run — P5, 24 rows × 3 × 2 arms, generation stubbed | 48 | 212,198 (0) | 1,998 | $0.0330 | d |
+| run — query embeddings | 84 calls | 1,451 tokens | — | <$0.0001 | d |
+| **total** | **764** | | | **~$0.28** of the $3.00 budget | d |
+
+RAGAS answer-correctness embedding calls are not counted; they are negligible at this list price.

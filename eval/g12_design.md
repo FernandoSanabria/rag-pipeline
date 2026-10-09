@@ -3,6 +3,9 @@
 Recorded 2026-10-08. This is the record of the read-only probes and the design, accepted at GATE 1 **before any
 graph code**. The pre-registration is [`g12_PREDICTION.md`](g12_PREDICTION.md).
 
+**Status:** see the Outcome section of [`g12_PREDICTION.md`](g12_PREDICTION.md). The fan-out ships switched off
+(`FANOUT_ENABLED = False`).
+
 **What G12 is.** Comparison questions dispatch one retrieval per sub-question, concurrently, through LangGraph's
 `Send` API. A join node aggregates the results before `tool_decide` and generation, and one failing branch degrades
 gracefully.
@@ -236,3 +239,41 @@ finish in **under 450 ms** of wall time with overlapping trace intervals.
 **Follow-ons:**
 - a per-branch depth knob, to bound the doubled context;
 - a decomposer-only gate, if the wording pre-gate's recall on unseen comparison phrasings matters.
+
+## Fan-out topology (the enabled build)
+The shipped graph is built with `FANOUT_ENABLED = False` and has the pre-G12 topology; that is the block in
+`README.md`. The block below is `scripts/render_graph.py`'s output for `_build_graph(fanout=True)`:
+- the edge labels are hand-curated, as in the README;
+- the node and edge sets are the measured build's, at the commit the live run executed. This is asserted by
+  `test_enabled_graph_topology_matches_the_measured_build`.
+
+```mermaid
+graph TD;
+    __start__([START]):::first
+    router(router)
+    retrieve(retrieve)
+    source_scoped_retrieve(source_scoped_retrieve)
+    decompose(decompose)
+    branch_retrieve(branch_retrieve)
+    join(join)
+    tool_decide(tool_decide)
+    tool_exec(tool_exec)
+    generate(generate)
+    __end__([END]):::last
+    __start__ --> router;
+    router -. direct .-> retrieve;
+    router -. source_scoped .-> source_scoped_retrieve;
+    router -. comparison wording .-> decompose;
+    decompose -. Send x 2-3 .-> branch_retrieve;
+    decompose -. declined .-> retrieve;
+    branch_retrieve --> join;
+    join --> tool_decide;
+    retrieve --> tool_decide;
+    source_scoped_retrieve --> tool_decide;
+    tool_decide -. tools .-> tool_exec;
+    tool_decide -. done .-> generate;
+    tool_exec --> tool_decide;
+    generate --> __end__;
+    classDef first fill-opacity:0
+    classDef last fill:#bfb6fc
+```
