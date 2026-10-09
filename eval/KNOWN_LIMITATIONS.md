@@ -28,6 +28,13 @@ attribution — which is exactly why `citations.py` routes around the prose.
 improvement on the **NIOSH side**. The **EPA page imprecision is UNCHANGED**. So "citation improved"
 is true for NIOSH specifically, not across the board.
 
+**Inline misattribution the array does not expose** (G9, recorded 2026-10-09).
+- **The instance:** on G9 row 21, the served answer's inline citation sources a claim about OSHA's air-contaminants
+  table to `niosh-pocket-guide page=89`. This happened in 5 of 8 G9b-build runs; see the G9 block of
+  [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
+- **Why the array can't show it:** the structured array lists the retrieved pages of both documents, so it can't
+  show that the inline attribution is wrong.
+
 **2D candidate (backlog, deferred).** Rank-weight / trim the citation array toward the chunks the
 answer actually grounds on, or reconcile inline ↔ array. Not done now; `citations.py` is untouched.
 Because the answer and its inline attribution are correct, this is a provenance-surface cleanup, not
@@ -159,6 +166,13 @@ in `api/main.py`.
   An integer in the answer matches any context number that rounds to it.
 - **Only figures are checked.** A wrong claim built from traceable numbers passes, and so does a wrong name or
   unit.
+- **A non-numeric misattribution passes** (recorded 2026-10-09). The output guard checks numeric traceability only.
+  - **Observed on G9 row 21:** in 5 of the 8 G9b-build runs that served it (#15–#17, #20, #26), the served answer
+    sourced a claim about OSHA's air-contaminants table to the NIOSH Pocket Guide page (faithfulness 0.333,
+    correctness 0.956).
+  - **Once locally:** a variant at the same faithfulness also appeared once, in a local dev run on 2026-10-08. Its
+    text was not recorded.
+  - **The ledger:** the G9 block of [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
 - **In-sample caveat.** The source-side reading rules (digit boundaries, magnitude, both readings of a lone comma)
   were developed against recorded answers to the frozen 28. So P3's 0/84 and the replay's 0 false positives are
   not out-of-sample numbers.

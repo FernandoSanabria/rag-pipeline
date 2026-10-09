@@ -446,6 +446,7 @@ items, so it stays off (`INPUT_GUARD_ENABLED = False`).
 | #15–#19 | workflow_dispatch | 05:46–05:50 | `8ed1667` | G9b | **G9b P1b, P3b** | all green; T2 reported on row 21 in #15–#17 |
 | #20 | workflow_dispatch | 05:52 | `8ed1667` | G9b | **G9b P2b**, negative proof | red, as required (T1 row 1) |
 | #21–#25 | workflow_dispatch (`rows=24`) | 05:53–05:56 | `8ed1667` | G9b | DIAGNOSTIC: reading answer B | green; row 24 served A in all 5 |
+| #26 | pull_request | 06:04 | — (the PR head after the G9b outcome docs) | G9b | gated | green; T2 reported on row 21 (0.3333) |
 
 **Per-row values.** The G9 runs are tabled in the G9 outcome section of [`g9_PREDICTION.md`](g9_PREDICTION.md), and the
 G9b runs in its G9b outcome.
@@ -474,6 +475,8 @@ G9b runs in its G9b outcome.
 That is 2 noise reds in 7 gated runs, so **the registered demotion fired**: G9's check became reported-only.
 
 **G9b window** (the G9b build, from #14 on): 0 reds in 6 gated runs (#14–#19).
+- **Appended, #26:** green, so the window stands at 0 reds in 7 gated runs. Row 21's misattribution variant, read
+  through the ciphertext, recurred there: 5 of the 8 G9b-build runs that served row 21.
 
 **Reported, not red** (G9b's T2 floor):
 - row 21 in #15, #16, #17 and #20;
