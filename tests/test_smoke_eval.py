@@ -4,11 +4,14 @@ No network: the live bindings are replaced by fakes, or the real wiring (api.mai
 with retrieval, generation and the judge stubbed. Rows are 1-based.
 """
 
+import hashlib
 import importlib.util
 import json
-import math
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -89,10 +92,10 @@ def test_t1_refusal_identity_applies_to_the_refusal_row_only():
     assert [(f["tier"], f["row"], f["kind"]) for f in fails] == [("T1", 25, "refusal_identity")]
 
 
-def test_t2_reds_only_below_snapshot_minus_delta():
-    assert smoke.DELTA_F == 0.2
+def test_t2_flags_below_snapshot_minus_delta_and_t1_is_the_only_hard_tier():
+    assert smoke.DELTA_F == 0.2 and smoke.HARD_TIERS == ("T1",)  # G9b
     assert smoke.t2_status(0.8, 1.0) == "pass"   # one unsupported statement in five: the measured noise
-    assert smoke.t2_status(0.75, 1.0) == "red"
+    assert smoke.t2_status(0.75, 1.0) == "below_floor"
     assert smoke.t2_status(0.0, 0.0) == "pass"   # the refusal row: faithfulness cannot see it, T1 does
     assert smoke.t2_status(None, 1.0) == "not_scored"
     assert smoke.t2_status(1.0, None) == "not_scored"
@@ -136,7 +139,7 @@ def test_a_nan_that_scores_on_retry_is_kept_and_cached(tmp_path):
 def test_an_empty_answer_scores_zero_without_a_judge_call(tmp_path):
     out = smoke.judge_row(ROW, "  ", ["ctx"], smoke.JudgeCache(tmp_path / "judge.json"), _Scorer(), "0.4.3")
     assert out == {"faithfulness": (0.0, "empty_answer"), "answer_correctness": (0.0, "empty_answer")}
-    assert smoke.t2_status(0.0, 1.0) == "red"
+    assert smoke.t2_status(0.0, 1.0) == "below_floor"
 
 
 def test_the_cache_key_is_stable_and_sensitive_to_every_input():
@@ -176,14 +179,21 @@ def _rows():
              "reference": f"{MARKER} reference {n}"} for n in (1, 4, 25)]
 
 
-def _fake_deps(gen_calls=None, judge_calls=None, scorer=None):
+def _fake_encrypt(text):
+    """Stands in for gpg: a PGP-shaped block carrying only the plaintext's hash."""
+    return f"-----BEGIN PGP MESSAGE-----\n{hashlib.sha256(text.encode()).hexdigest()}\n-----END PGP MESSAGE-----\n", None
+
+
+def _fake_deps(gen_calls=None, judge_calls=None, scorer=None, ignore_k=False, variant=None, encrypt=_fake_encrypt):
     counts = {"gen": 0, "judge": 0}
 
     def answer(row, k=None):
         counts["gen"] += 1
         n = row["row"]
-        pages = range(1, (k or 10) + 1)
+        pages = range(1, ((None if ignore_k else k) or 10) + 1)
         text = "The provided context does not contain the answer." if n == 25 else f"{MARKER} answer {n}"
+        if variant and n in variant:
+            text = variant[n]
         return {"answer": text, "contexts": [f"{MARKER} ctx {n} {p}" for p in pages],
                 "chunks": [{"source_doc_id": f"doc-{n}", "page": p, "text": MARKER} for p in pages],
                 "route": None, "source_doc_id": None}
@@ -191,13 +201,15 @@ def _fake_deps(gen_calls=None, judge_calls=None, scorer=None):
     def score(question, answer_text, contexts, reference, metrics):
         counts["judge"] += 4
         faithful = 0.0 if answer_text == smoke.SIM_UNFAITHFUL_ANSWER or answer_text.startswith("The provided") else 1.0
+        if "VARIANT" in answer_text:
+            faithful = 0.75  # like G9's row-24 answer B
         return {"faithfulness": faithful, "answer_correctness": 0.6}
 
     from api.confidence import is_refusal
 
     return {"answer": answer, "score": scorer or score, "advisory": lambda row, res: None, "is_refusal": is_refusal,
             "generation_calls": gen_calls or (lambda: counts["gen"]),
-            "judge_calls": judge_calls or (lambda: counts["judge"]), "judge_cost": lambda: 0.0}
+            "judge_calls": judge_calls or (lambda: counts["judge"]), "judge_cost": lambda: 0.0, "encrypt": encrypt}
 
 
 def _baseline(tmp_path):
@@ -212,7 +224,7 @@ def test_baseline_then_gate_is_green_and_replays_the_cache(tmp_path):
     snapshot = _baseline(tmp_path)
     assert set(snapshot["rows"]) == {"1", "4", "25"}
     code, report = smoke.execute("gate", _rows(), snapshot, _fake_deps(), smoke.JudgeCache(tmp_path / "j.json"), "v")
-    assert code == 0 and report["failures"] == []
+    assert code == 0 and report["failures"] == [] and report["reported"] == [] and report["breaches"] == []
     assert report["cache"]["faithfulness_hits"] == 3
     assert {r["row"]: (r["t1"], r["t2"]) for r in report["per_row"]} == {1: ("pass", "pass"), 4: ("pass", "pass"),
                                                                          25: ("pass", "pass")}
@@ -237,7 +249,9 @@ def test_outputs_carry_no_question_answer_or_context_text(tmp_path, monkeypatch,
     monkeypatch.setattr(smoke, "OUT_DIR", tmp_path / "out")
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
     smoke.write_outputs(report, snapshot)
-    written = "".join(p.read_text() for p in (tmp_path / "out").iterdir()) + (tmp_path / "summary.md").read_text()
+    files = [p for p in (tmp_path / "out").rglob("*") if p.is_file()]
+    assert {p.name for p in files} >= {"report.json", "smoke_snapshot.json", "row-1.asc", "row-4.asc"}
+    written = "".join(p.read_text() for p in files) + (tmp_path / "summary.md").read_text()
     assert MARKER not in written + json.dumps(snapshot) + capsys.readouterr().out
     assert MARKER not in (tmp_path / "j.json").read_text()  # the cache holds hashes and floats only
 
@@ -260,6 +274,9 @@ def test_simulate_regression_names_both_failures_through_the_real_wiring(tmp_pat
     monkeypatch.setattr(pipeline, "dense_search", fake_dense_search)
     monkeypatch.setattr(pipeline, "generate", lambda question, contexts: "A grounded answer without figures.")
     monkeypatch.setattr(retrieve, "_embedder", lambda: object())
+    import httpx
+
+    monkeypatch.setattr(httpx.Client, "send", httpx.Client.send)  # live_deps installs the header probe; restore it
 
     class _CB:
         prompt_tokens = prompt_tokens_cached = completion_tokens = 0
@@ -269,7 +286,7 @@ def test_simulate_regression_names_both_failures_through_the_real_wiring(tmp_pat
     def score(question, answer_text, contexts, reference, metrics):
         return {m: (0.0 if answer_text == smoke.SIM_UNFAITHFUL_ANSWER else 1.0) for m in metrics}
 
-    deps.update(score=score, advisory=lambda row, res: None)
+    deps.update(score=score, advisory=lambda row, res: None, encrypt=_fake_encrypt)
     rows = [r for r in smoke.load_smoke_set() if r["row"] in (1, 4)]
     cache = smoke.JudgeCache(tmp_path / "j.json")
     code, base = smoke.execute("baseline", rows, None, deps, cache, "v")
@@ -285,22 +302,106 @@ def test_simulate_regression_names_both_failures_through_the_real_wiring(tmp_pat
     assert seen_k == [2, 10]                  # row 1 at k=2, row 4 untouched
     assert pipeline.get_settings().retrieval_k == 10  # the override did not leak
     assert code == 1
-    assert [(f["tier"], f["row"]) for f in report["failures"]] == [("T1", 1), ("T2", 4)]
-    assert report["negative_proof"] == {"t1_row1": True, "t2_row4": True, "held": True}
+    assert [(f["tier"], f["row"]) for f in report["failures"]] == [("T1", 1)]   # G9b: T1 is the only hard tier
+    assert [(f["tier"], f["row"]) for f in report["reported"]] == [("T2", 4)]
+    assert report["negative_proof"] == {"t1_row1": True, "t2_row4_reported": True, "held": True}
+    assert [(b["row"], b["tiers"]) for b in report["breaches"]] == [(1, ["T1"]), (4, ["T2"])]
     row4 = next(r for r in report["per_row"] if r["row"] == 4)
     assert row4["sources"]["faithfulness"] == "judge" and row4["simulated"] == "T2: canned unfaithful answer"
 
 
 def test_a_failed_negative_proof_is_still_red(tmp_path):
     snapshot = _baseline(tmp_path)
+    deps = _fake_deps(ignore_k=True)  # a pipeline that ignores the k override: T1 cannot fire
+    code, report = smoke.execute("simulate", _rows(), snapshot, deps, smoke.JudgeCache(tmp_path / "x.json"), "v")
+    assert code == 1 and report["negative_proof"] == {"t1_row1": False, "t2_row4_reported": True, "held": False}
 
-    def lenient(question, answer_text, contexts, reference, metrics):
-        return {m: 1.0 for m in metrics}  # a judge that cannot see the canned answer
 
-    rows = _rows()
-    deps = _fake_deps(scorer=lenient)
-    code, report = smoke.execute("simulate", rows, snapshot, deps, smoke.JudgeCache(tmp_path / "x.json"), "v")
-    assert code == 1 and report["negative_proof"] == {"t1_row1": True, "t2_row4": False, "held": False}
+# --- G9b: T2 reported, encrypt-on-breach ------------------------------------------------------------------------------
+
+
+def test_a_t2_breach_alone_is_reported_encrypted_and_exits_0(tmp_path, monkeypatch, capsys):
+    snapshot = _baseline(tmp_path)
+    variant = {4: f"{MARKER} answer 4 VARIANT"}  # a changed answer, judged 0.75 against the snapshot's 1.0
+    code, report = smoke.execute("gate", _rows(), snapshot, _fake_deps(variant=variant),
+                                 smoke.JudgeCache(tmp_path / "j.json"), "v")
+    assert code == 0 and report["failures"] == []
+    assert [(f["tier"], f["row"], f["kind"]) for f in report["reported"]] == [("T2", 4, "faithfulness_floor")]
+    assert next(r for r in report["per_row"] if r["row"] == 4)["t2"] == "below_floor"
+    [breach] = report["breaches"]
+    assert breach["row"] == 4 and breach["ciphertext"] == "breaches/row-4.asc"
+    assert breach["answer_sha256"] == hashlib.sha256(variant[4].encode()).hexdigest()
+    assert breach["key_fingerprint"] == smoke.PUBKEY_FINGERPRINT
+    monkeypatch.setattr(smoke, "OUT_DIR", tmp_path / "out")
+    smoke.write_outputs(report)
+    assert sorted(p.name for p in (tmp_path / "out" / "breaches").iterdir()) == ["row-4.asc"]  # the passing rows: none
+    out = capsys.readouterr().out
+    assert "::warning::T2 row 4 (reported, not red)" in out and "::error::" not in out
+    for path in (tmp_path / "out").rglob("*"):
+        if path.is_file():
+            assert MARKER not in path.read_text()  # no plaintext answer anywhere in the artifact directory
+
+
+def test_a_pass_produces_no_ciphertext(tmp_path, monkeypatch):
+    snapshot = _baseline(tmp_path)
+    code, report = smoke.execute("gate", _rows(), snapshot, _fake_deps(), smoke.JudgeCache(tmp_path / "j.json"), "v")
+    monkeypatch.setattr(smoke, "OUT_DIR", tmp_path / "out")
+    smoke.write_outputs(report)
+    assert code == 0 and report["breaches"] == [] and not (tmp_path / "out" / "breaches").exists()
+
+
+@pytest.mark.parametrize("encrypt, error", [
+    (lambda text: (None, "gpg not found"), "gpg not found"),
+    (lambda text: (f"-----BEGIN PGP MESSAGE-----\n{text}\n", None), "encryption output contained the plaintext"),
+])
+def test_a_failed_encryption_writes_nothing_never_plaintext(tmp_path, monkeypatch, encrypt, error):
+    snapshot = _baseline(tmp_path)
+    variant = {4: f"{MARKER} answer 4 VARIANT"}
+    code, report = smoke.execute("gate", _rows(), snapshot, _fake_deps(variant=variant, encrypt=encrypt),
+                                 smoke.JudgeCache(tmp_path / "j.json"), "v")
+    [breach] = report["breaches"]
+    assert breach["ciphertext"] is None and error in breach["error"]
+    monkeypatch.setattr(smoke, "OUT_DIR", tmp_path / "out")
+    smoke.write_outputs(report)
+    assert not (tmp_path / "out" / "breaches").exists()
+    assert MARKER not in (tmp_path / "out" / "report.json").read_text()
+
+
+def test_the_committed_key_is_public_only():
+    text = smoke.PUBKEY_PATH.read_text()
+    assert text.startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----") and "PRIVATE" not in text
+
+
+@pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed (GitHub's Ubuntu runners have it)")
+def test_real_gpg_encrypts_to_the_committed_key_and_its_fingerprint_matches():
+    ciphertext, error = smoke.gpg_encrypt(f"{MARKER} a breach answer")
+    assert error is None and ciphertext.startswith("-----BEGIN PGP MESSAGE-----") and MARKER not in ciphertext
+    with tempfile.TemporaryDirectory() as home:
+        shown = subprocess.run(["gpg", "--homedir", home, "--batch", "--with-colons", "--import-options", "show-only",
+                                "--import", str(smoke.PUBKEY_PATH)], capture_output=True, text=True, check=True).stdout
+    assert f"fpr:::::::::{smoke.PUBKEY_FINGERPRINT}:" in shown
+
+
+def test_generation_headers_select_only_the_seeded_chat_call():
+    headers = {"openai-organization": "org-x", "openai-project": "proj_y", "x-request-id": "r"}
+    gen = b'{"messages": [], "model": "gpt-4o-mini", "seed": 42, "temperature": 0.0}'
+    assert smoke.generation_headers("/v1/chat/completions", gen, headers) == {"openai-organization": "org-x",
+                                                                              "openai-project": "proj_y"}
+    assert smoke.generation_headers("/v1/chat/completions", b'{"model": "gpt-4o-mini"}', headers) is None  # router/judge
+    assert smoke.generation_headers("/v1/embeddings", gen, headers) is None
+    assert smoke.generation_headers("/v1/chat/completions", gen, {}) == {}
+    assert smoke.headers_summary([{"openai-organization": "o"}] * 3) == [{"openai-organization": "o", "calls": 3}]
+
+
+def test_rows_is_a_gate_mode_diagnostic_subset():
+    rows = smoke.load_smoke_set()
+    assert [r["row"] for r in smoke.select_rows(rows, "24")] == [24]
+    assert [r["row"] for r in smoke.select_rows(rows, "4,1")] == [1, 4]
+    for bad in ("", "2", "24,x"):
+        with pytest.raises(smoke.ConfigError):
+            smoke.select_rows(rows, bad)
+    assert smoke.main(["--rows", "24", "--baseline"]) == 2
+    assert smoke.main(["--rows", "24", "--simulate-regression"]) == 2
 
 
 def test_baseline_and_simulate_are_exclusive():
@@ -364,9 +465,11 @@ def test_workflow_triggers_and_inputs():
     data, on = _workflow()
     assert set(on) == {"pull_request", "push", "workflow_dispatch"}
     assert on["pull_request"] == {"branches": ["main"]} and on["push"] == {"branches": ["main"]}  # no on.paths
-    assert set(on["workflow_dispatch"]["inputs"]) == {"simulate_regression", "baseline"}
-    assert all(i["type"] == "boolean" and i["default"] is False for i in on["workflow_dispatch"]["inputs"].values())
-    assert "SIMULATED REGRESSION" in data["run-name"]
+    inputs = on["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {"simulate_regression", "baseline", "rows"}
+    assert all(inputs[i]["type"] == "boolean" and inputs[i]["default"] is False for i in ("simulate_regression", "baseline"))
+    assert inputs["rows"] == {"description": inputs["rows"]["description"], "type": "string", "default": ""}
+    assert "SIMULATED REGRESSION" in data["run-name"] and "DIAGNOSTIC rows=" in data["run-name"]
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
@@ -380,6 +483,8 @@ def test_workflow_jobs_skip_neutrally_and_cache_merges():
     assert job["needs"] == "gate" and job["if"] == "needs.gate.outputs.run == 'true'"
     assert job["timeout-minutes"] == 15
     assert job["env"]["INDEX_NAME"] == "equip-docs-rag" and job["env"]["LANGCHAIN_TRACING_V2"] == "false"
+    assert job["env"]["ROWS"] == "${{ inputs.rows || '' }}"
+    assert any('args+=(--rows "$ROWS")' in s.get("run", "") for s in job["steps"])
     steps = {s.get("name"): s for s in job["steps"]}
     setup = next(s for s in job["steps"] if s.get("uses", "").startswith("astral-sh/setup-uv"))
     assert setup["uses"] == "astral-sh/setup-uv@v5" and setup["with"]["version"] == "0.11.25"

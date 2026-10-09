@@ -1,13 +1,19 @@
-"""G9 smoke evaluation: 8 rows of the frozen dataset on every PR, gated on retrieval and faithfulness.
+"""G9b smoke evaluation: 8 rows of the frozen dataset on every PR, gated on retrieval; faithfulness reported.
 
-The design is eval/g9_design.md; the registered predictions are eval/g9_PREDICTION.md. Rows are 1-based.
+The design is eval/g9_design.md; the registered predictions are eval/g9_PREDICTION.md (G9, then G9b). Rows are 1-based.
+G9 gated T2 hard and was falsified (P1: 2 of 5 runs red, generation variance on row 24), so the registered demotion
+rule fired; G9b keeps T1 as the only hard tier.
 
 Tiers, against the committed eval/smoke_snapshot.json:
 - T1, hard: each row's (source_doc_id, page) set of document chunks equals the snapshot's. On the refusal row the
   served answer must also still be the whole refusal.
-- T2, hard: red iff faithfulness < snapshot - 0.2. A judge NaN is retried once; still NaN -> NOT SCORED (reported, not
-  red). An empty served answer scores 0.0 without a judge call: there is nothing in it to support.
+- T2, reported: faithfulness < snapshot - 0.2 is a "below floor" warning, never red. A judge NaN is retried once;
+  still NaN -> NOT SCORED. An empty served answer scores 0.0 without a judge call: there is nothing in it to support.
 - T3, reported: answer correctness, as a delta against the snapshot.
+
+Breach rows (a T1 failure or a T2 floor breach) have their answer text, and only that, encrypted to the OpenPGP key
+at eval/smoke_pubkey.asc; the ciphertext goes in the artifact. Without gpg nothing is written, never plaintext. The
+generation call's openai-organization / openai-project response headers are logged (a diagnostic; not credentials).
 
 What runs: each row goes through api.main._answer, the one wiring point of /ask and /ask/agent, so the judged answer is
 the served answer (after the output guard). The judge is eval/run_eval.py's: gpt-4o-mini at temperature 0,
@@ -15,12 +21,13 @@ text-embedding-3-small, and its faithfulness and answer_correctness metric objec
 are cached by content in .smoke-cache/judge.json, merged and never replaced, so an unchanged row replays its own score.
 
 The repository is public, so everything this writes (log, step summary, the .smoke-out/ artifact, the snapshot) is
-derived: page sets, scores, hashes and counts. Never question, answer or context text.
+derived: page sets, scores, hashes and counts, plus the breach ciphertext. Never question, answer or context text.
 
 Modes:
   uv run python scripts/smoke_eval.py                        gate against the snapshot: exit 0 green, 1 red
   uv run python scripts/smoke_eval.py --baseline             write .smoke-out/smoke_snapshot.json; no gate
-  uv run python scripts/smoke_eval.py --simulate-regression  the negative proof: row 1 at k=2, row 4 unfaithful; red
+  uv run python scripts/smoke_eval.py --simulate-regression  the negative proof: row 1 at k=2 (red), row 4 unfaithful
+  uv run python scripts/smoke_eval.py --rows 24              DIAGNOSTIC: gate a subset of the 8 (outside the window)
   python3 scripts/smoke_eval.py gate --event ...             the workflow's gate job (stdlib only, reads no secret)
 Exit 2: a cap breached (8 rows, 10 generation calls, 120 judge calls) or a configuration error.
 """
@@ -43,8 +50,14 @@ SMOKE_SET_PATH = REPO_ROOT / "eval" / "smoke_set.json"
 SNAPSHOT_PATH = REPO_ROOT / "eval" / "smoke_snapshot.json"
 CACHE_PATH = REPO_ROOT / ".smoke-cache" / "judge.json"
 OUT_DIR = REPO_ROOT / ".smoke-out"
+PUBKEY_PATH = REPO_ROOT / "eval" / "smoke_pubkey.asc"
+# The committed key's primary fingerprint (tests/test_smoke_eval.py checks the file against it). The private key is held
+# off-repo by the maintainer; see eval/g9_design.md.
+PUBKEY_FINGERPRINT = "0A23108E5E612C30A84874FC1A47B75AB89F83AE"
 
 DELTA_F = 0.2
+HARD_TIERS = ("T1",)  # G9b: T2 and T3 are reported (G9's P1 was falsified on T2)
+GENERATION_HEADERS = ("openai-organization", "openai-project")
 CAPS = {"rows": 8, "generation_calls": 10, "judge_calls": 120}
 JUDGE_MODEL = "gpt-4o-mini"  # eval/run_eval.py's judge; tests/test_smoke_eval.py pins the match
 EMBED_MODEL = "text-embedding-3-small"
@@ -146,10 +159,11 @@ def t1_failures(row: dict, now: dict, snap: dict) -> list[dict]:
 
 
 def t2_status(now_f, snap_f, delta: float = DELTA_F) -> str:
-    """'red' iff faithfulness < snapshot - delta; 'not_scored' if either side has no score; else 'pass'."""
+    """'below_floor' iff faithfulness < snapshot - delta; 'not_scored' if either side has no score; else 'pass'.
+    Under G9b a breach is reported, never red (HARD_TIERS)."""
     if now_f is None or snap_f is None:
         return "not_scored"
-    return "red" if now_f < snap_f - delta else "pass"
+    return "below_floor" if now_f < snap_f - delta else "pass"
 
 
 # --- the judge cache (refinement A) --------------------------------------------------------------------------------
@@ -258,12 +272,13 @@ class Budget:
 
 
 def run_rows(rows: list[dict], deps: dict, cache: JudgeCache, budget: Budget, ragas_version: str,
-             simulate: bool = False) -> list[dict]:
-    """Answer, then judge, every row. `deps` holds the bindings, live or fake:
+             simulate: bool = False) -> tuple[list[dict], dict[int, str]]:
+    """Answer, then judge, every row. Returns the derived results and, separately, each row's served answer text, which
+    stays in memory (it is only ever encrypted, on a breach). `deps` holds the bindings, live or fake:
     answer(row, k) -> {answer, contexts, chunks, route, source_doc_id}; score(question, answer, contexts, reference,
     metrics) -> {metric: float|NaN}; advisory(row, result) -> top-11 list|None; is_refusal(answer) -> bool;
     generation_calls() / judge_calls() -> int; judge_cost() -> float (cumulative, for the per-row judge spend)."""
-    results = []
+    results, answers = [], {}
     for row in rows:
         n = row["row"]
         k = SIM_T1_K if simulate and n == SIM_T1_ROW else None
@@ -271,6 +286,7 @@ def run_rows(rows: list[dict], deps: dict, cache: JudgeCache, budget: Budget, ra
         budget.check(generation_calls=deps["generation_calls"]())
         canned = simulate and n == SIM_T2_ROW
         answer = SIM_UNFAITHFUL_ANSWER if canned else res["answer"]
+        answers[n] = answer
         cost_before = deps["judge_cost"]()
         scores = judge_row(row, answer, res["contexts"], cache, deps["score"], ragas_version)
         budget.check(judge_calls=deps["judge_calls"]())
@@ -296,12 +312,12 @@ def run_rows(rows: list[dict], deps: dict, cache: JudgeCache, budget: Budget, ra
             "top11": top,
             "simulated": f"T1: k={k}" if k else "T2: canned unfaithful answer" if canned else None,
         })
-    return results
+    return results, answers
 
 
-def compare(rows: list[dict], results: list[dict], snapshot: dict) -> tuple[list[dict], list[dict]]:
-    """Per-row verdicts against the snapshot, and the hard-tier failures."""
-    per_row, failures = [], []
+def compare(rows: list[dict], results: list[dict], snapshot: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    """Per-row verdicts against the snapshot, the hard-tier failures (T1) and the reported breaches (T2)."""
+    per_row, failures, reported = [], [], []
     for row, now in zip(rows, results):
         snap = snapshot["rows"].get(str(row["row"]))
         if snap is None:
@@ -309,10 +325,10 @@ def compare(rows: list[dict], results: list[dict], snapshot: dict) -> tuple[list
         t1 = t1_failures(row, now, snap)
         t2 = t2_status(now["faithfulness"], snap["faithfulness"])
         failures += t1
-        if t2 == "red":
-            failures.append({"tier": "T2", "row": row["row"], "kind": "faithfulness",
-                             "detail": f"faithfulness {now['faithfulness']} < snapshot {snap['faithfulness']} - "
-                                       f"{DELTA_F}"})
+        if t2 == "below_floor":
+            breach = {"tier": "T2", "row": row["row"], "kind": "faithfulness_floor",
+                      "detail": f"faithfulness {now['faithfulness']} < snapshot {snap['faithfulness']} - {DELTA_F}"}
+            (failures if "T2" in HARD_TIERS else reported).append(breach)
         c_now, c_snap = now["answer_correctness"], snap["answer_correctness"]
         per_row.append({
             **now,
@@ -323,14 +339,39 @@ def compare(rows: list[dict], results: list[dict], snapshot: dict) -> tuple[list
             "t3_correctness_delta": None if c_now is None or c_snap is None else round(c_now - c_snap, 4),
             "snapshot_top11": snap.get("top11"),
         })
-    return per_row, failures
+    return per_row, failures, reported
 
 
-def negative_proof(failures: list[dict]) -> dict:
-    """R6: both injected regressions must be named, T1 on row 1 and T2 on row 4."""
+def negative_proof(failures: list[dict], reported: list[dict]) -> dict:
+    """G9b's P2b: the injected T1 regression (row 1) must go red; T2's reported line on row 4 is recorded."""
     t1 = any(f["tier"] == "T1" and f["row"] == SIM_T1_ROW and f["kind"] == "retrieval_set" for f in failures)
-    t2 = any(f["tier"] == "T2" and f["row"] == SIM_T2_ROW for f in failures)
-    return {"t1_row1": t1, "t2_row4": t2, "held": t1 and t2}
+    t2 = any(f["tier"] == "T2" and f["row"] == SIM_T2_ROW for f in reported)
+    return {"t1_row1": t1, "t2_row4_reported": t2, "held": t1}
+
+
+def encrypt_breaches(per_row: list[dict], failures: list[dict], reported: list[dict], answers: dict[int, str],
+                     encrypt) -> tuple[list[dict], dict[int, str]]:
+    """Encrypt the answer text, and only that, of every row with a T1 failure or a T2 floor breach.
+    Returns the derived breach records and the ciphertexts by row. A failed encryption writes nothing, never plaintext."""
+    tiers: dict[int, list[str]] = {}
+    for b in failures + reported:
+        tiers.setdefault(b["row"], [])
+        if b["tier"] not in tiers[b["row"]]:
+            tiers[b["row"]].append(b["tier"])
+    sha = {r["row"]: r["answer_sha256"] for r in per_row}
+    records, ciphertexts = [], {}
+    for n in sorted(tiers):
+        ciphertext, error = encrypt(answers[n])
+        if ciphertext is not None and answers[n] and answers[n] in ciphertext:
+            ciphertext, error = None, "encryption output contained the plaintext; discarded"
+        if ciphertext is not None:
+            ciphertexts[n] = ciphertext
+        else:
+            print(f"::warning::row {n}: breach answer not encrypted ({error}); nothing written")
+        records.append({"row": n, "tiers": tiers[n], "answer_sha256": sha[n],
+                        "ciphertext": f"breaches/row-{n}.asc" if ciphertext is not None else None,
+                        "error": error, "key_fingerprint": PUBKEY_FINGERPRINT})
+    return records, ciphertexts
 
 
 def snapshot_from(results: list[dict], provenance: dict) -> dict:
@@ -355,7 +396,7 @@ def execute(mode: str, rows: list[dict], snapshot: dict | None, deps: dict, cach
     try:
         if mode != "baseline" and snapshot is None:
             raise ConfigError("no snapshot; run a baseline first")
-        results = run_rows(rows, deps, cache, budget, ragas_version, simulate=(mode == "simulate"))
+        results, answers = run_rows(rows, deps, cache, budget, ragas_version, simulate=(mode == "simulate"))
     except (CapExceeded, ConfigError) as exc:
         label = "cap breached" if isinstance(exc, CapExceeded) else "configuration error"
         print(f"::error::{label}: {exc}")
@@ -380,21 +421,25 @@ def execute(mode: str, rows: list[dict], snapshot: dict | None, deps: dict, cach
             return 2, report
         return 0, report
     try:
-        per_row, failures = compare(rows, results, snapshot)
+        per_row, failures, reported = compare(rows, results, snapshot)
     except ConfigError as exc:
         print(f"::error::configuration error: {exc}")
         report.update(aborted=f"configuration error: {exc}", per_row=results)
         return 2, report
-    report.update(per_row=per_row, failures=failures)
+    breaches, ciphertexts = encrypt_breaches(per_row, failures, reported, answers, deps["encrypt"])
+    report.update(per_row=per_row, failures=failures, reported=reported, breaches=breaches,
+                  _ciphertexts=ciphertexts)  # written to breaches/ by write_outputs, never into report.json
     prefix = "SIMULATED — " if mode == "simulate" else ""
     for f in failures:
         print(f"::error::{prefix}{f['tier']} row {f['row']}: {f['detail']}")
+    for f in reported:
+        print(f"::warning::{prefix}{f['tier']} row {f['row']} (reported, not red): {f['detail']}")
     if mode == "simulate":
-        proof = negative_proof(failures)
+        proof = negative_proof(failures, reported)
         report["negative_proof"] = proof
         if proof["held"]:
-            print("::error::SIMULATED REGRESSION (negative proof): both injected regressions went red as required "
-                  f"(T1 row {SIM_T1_ROW}, T2 row {SIM_T2_ROW}); failing the job intentionally")
+            print(f"::error::SIMULATED REGRESSION (negative proof): T1 row {SIM_T1_ROW} went red as required; T2 row "
+                  f"{SIM_T2_ROW}'s reported line present: {proof['t2_row4_reported']}; failing the job intentionally")
         else:
             print(f"::error::SIMULATED — the negative proof did NOT hold: {proof}")
         return 1, report
@@ -409,7 +454,8 @@ def _fmt(value) -> str:
 
 
 def summary_markdown(report: dict) -> str:
-    lines = [f"### eval-smoke ({report['mode']})", ""]
+    label = report["mode"] + (f", DIAGNOSTIC rows={report['rows_filter']}" if report.get("diagnostic") else "")
+    lines = [f"### eval-smoke ({label})", ""]
     if "aborted" in report:
         lines.append(f"**Aborted (exit 2):** {report['aborted']}")
         return "\n".join(lines) + "\n"
@@ -423,12 +469,19 @@ def summary_markdown(report: dict) -> str:
         lines += ["| row | endpoint | T1 | T2 | faithfulness (snapshot → now) | T3 correctness Δ | answer changed | "
                   "faithfulness from |", "|--:|---|---|---|---|--:|---|---|"]
         for r in rows:
-            lines.append(f"| {r['row']} | {r['endpoint']} | {r['t1']} | {r['t2']} | "
+            t2 = "below floor (reported)" if r["t2"] == "below_floor" else r["t2"]
+            lines.append(f"| {r['row']} | {r['endpoint']} | {r['t1']} | {t2} | "
                          f"{_fmt(r['snapshot_faithfulness'])} → {_fmt(r['faithfulness'])} | "
                          f"{_fmt(r['t3_correctness_delta'])} | {r['answer_changed']} | {r['sources']['faithfulness']} |")
         failures = report.get("failures", [])
-        lines += ["", f"**Hard-tier failures: {len(failures)}**"]
+        lines += ["", f"**Hard-tier (T1) failures: {len(failures)}**"]
         lines += [f"- {f['tier']} row {f['row']}: {f['detail']}" for f in failures]
+        reported = report.get("reported", [])
+        lines += ["", f"**Reported, not red (T2 floor): {len(reported)}**"]
+        lines += [f"- {f['tier']} row {f['row']}: {f['detail']}" for f in reported]
+        for b in report.get("breaches", []):
+            lines.append(f"- breach row {b['row']} ({', '.join(b['tiers'])}): answer "
+                         f"{'encrypted to ' + b['ciphertext'] if b['ciphertext'] else 'NOT encrypted: ' + str(b['error'])}")
     cache = report.get("cache", {})
     spend = report.get("spend", {})
     lines += ["", f"Cache: {cache.get('faithfulness_hits')} faithfulness hits of {len(rows)} rows "
@@ -437,11 +490,18 @@ def summary_markdown(report: dict) -> str:
               f"Spend (derived): ${spend.get('cost_usd')}; runner wall time {report.get('wall_s')} s."]
     if "negative_proof" in report:
         lines.append(f"Negative proof: {report['negative_proof']}")
+    if report.get("openai_headers") is not None:
+        lines.append(f"Generation call headers: {report['openai_headers']}")
     return "\n".join(lines) + "\n"
 
 
 def write_outputs(report: dict, snapshot: dict | None = None) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ciphertexts = report.pop("_ciphertexts", {})
+    if ciphertexts:
+        (OUT_DIR / "breaches").mkdir(exist_ok=True)
+        for n, text in ciphertexts.items():
+            (OUT_DIR / "breaches" / f"row-{n}.asc").write_text(text, encoding="utf-8")
     (OUT_DIR / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if snapshot is not None:
         (OUT_DIR / "smoke_snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n",
@@ -460,6 +520,56 @@ def write_outputs(report: dict, snapshot: dict | None = None) -> None:
 def _chat_cost(prompt: int, cached: int, completion: int) -> float:
     return ((prompt - cached) * PRICE_PER_M["input"] + cached * PRICE_PER_M["cached_input"]
             + completion * PRICE_PER_M["output"]) / 1e6
+
+
+def gpg_encrypt(text: str, pubkey: Path = PUBKEY_PATH) -> tuple[str | None, str | None]:
+    """ASCII-armored OpenPGP ciphertext of `text` for the committed public key, or (None, reason). A throwaway gpg home
+    is used, so no keyring is read or written; no private key is involved."""
+    import shutil
+    import tempfile
+
+    gpg = shutil.which("gpg")
+    if gpg is None:
+        return None, "gpg not found"
+    if not pubkey.exists():
+        return None, f"{pubkey.name} not found"
+    with tempfile.TemporaryDirectory() as home:
+        try:
+            out = subprocess.run([gpg, "--homedir", home, "--batch", "--yes", "--quiet", "--no-tty", "--trust-model",
+                                  "always", "--armor", "--recipient-file", str(pubkey), "--encrypt"],
+                                 input=text.encode("utf-8"), capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return None, f"gpg failed: {type(exc).__name__}"
+    if out.returncode != 0 or b"BEGIN PGP MESSAGE" not in out.stdout:
+        return None, f"gpg exit {out.returncode}"
+    return out.stdout.decode("ascii"), None
+
+
+def generation_headers(path: str, body: bytes | None, headers) -> dict | None:
+    """The account-identifying response headers of a generation call, else None. The generation call is the only chat
+    completion this pipeline sends with a `seed` (src/generate.py); the router, tool and guard calls send none."""
+    if not path.endswith("/chat/completions") or b'"seed"' not in (body or b""):
+        return None
+    return {h: headers.get(h) for h in GENERATION_HEADERS if headers.get(h) is not None}
+
+
+def install_generation_header_probe(store: list) -> None:
+    """Record generation calls' account headers (in this process only). Requests and responses pass through unchanged."""
+    import httpx
+
+    original = httpx.Client.send
+
+    def send(self, request, *args, **kwargs):
+        response = original(self, request, *args, **kwargs)
+        try:
+            found = generation_headers(request.url.path, request.content, response.headers)
+        except Exception:  # a diagnostic must never fail a call
+            found = None
+        if found is not None:
+            store.append(found)
+        return response
+
+    httpx.Client.send = send
 
 
 def live_deps(cb) -> tuple[dict, dict]:
@@ -484,7 +594,8 @@ def live_deps(cb) -> tuple[dict, dict]:
 
     encoding = tiktoken.get_encoding("cl100k_base")
     stats = {"judge_calls": 0, "judge_fingerprints": {}, "retrieval_embed_tokens": 0, "judge_embed_tokens": 0,
-             "judge_chat": [0, 0, 0]}
+             "judge_chat": [0, 0, 0], "generation_headers": []}
+    install_generation_header_probe(stats["generation_headers"])
 
     class JudgeCounter(BaseCallbackHandler):
         # Only on_llm_start: LangChain falls back to it for chat models, so each call is counted once.
@@ -599,6 +710,7 @@ def live_deps(cb) -> tuple[dict, dict]:
         "generation_calls": lambda: sum(b["n_calls"] for b in generation_backends()),
         "judge_calls": lambda: stats["judge_calls"],
         "judge_cost": judge_cost,
+        "encrypt": gpg_encrypt,
     }
     return deps, stats
 
@@ -636,7 +748,27 @@ def provenance(stats: dict | None = None) -> dict:
     }
 
 
-def run_live(mode: str) -> int:
+def select_rows(rows: list[dict], spec: str) -> list[dict]:
+    """A DIAGNOSTIC subset of the smoke rows, e.g. "24" or "1,4"; every row must be one of the 8."""
+    try:
+        wanted = [int(x) for x in spec.split(",") if x.strip()]
+    except ValueError:
+        raise ConfigError(f"--rows {spec!r}: expected comma-separated row numbers") from None
+    known = {r["row"] for r in rows}
+    if not wanted or not set(wanted) <= known:
+        raise ConfigError(f"--rows {spec!r}: must be a non-empty subset of the smoke rows {sorted(known)}")
+    return [r for r in rows if r["row"] in wanted]
+
+
+def headers_summary(found: list[dict]) -> list[dict]:
+    distinct: dict[str, dict] = {}
+    for h in found:
+        key = json.dumps(h, sort_keys=True)
+        distinct.setdefault(key, {**h, "calls": 0})["calls"] += 1
+    return list(distinct.values())
+
+
+def run_live(mode: str, rows_spec: str = "") -> int:
     from dotenv import load_dotenv
 
     load_dotenv(REPO_ROOT / ".env")  # local runs; in CI the keys come from the environment
@@ -648,6 +780,8 @@ def run_live(mode: str) -> int:
     snapshot = None
     try:
         rows = load_smoke_set()
+        if rows_spec:
+            rows = select_rows(rows, rows_spec)
         if mode != "baseline":
             if not SNAPSHOT_PATH.exists():
                 raise ConfigError("eval/smoke_snapshot.json is missing; run a baseline first")
@@ -672,6 +806,11 @@ def run_live(mode: str) -> int:
             "cost_usd": round(_chat_cost(*chat) + embed_tokens * PRICE_PER_M["embedding"] / 1e6, 6),
         }
         report["provenance"] = provenance(stats)
+        report["openai_headers"] = headers_summary(stats["generation_headers"])
+        for h in report["openai_headers"]:
+            print(f"::notice title=generation call headers::" + ", ".join(f"{k}={v}" for k, v in h.items()))
+        if rows_spec:
+            report.update(diagnostic=True, rows_filter=[r["row"] for r in rows])
     finally:
         report_entries = cache.save()
     report.setdefault("cache", {})["entries_after_save"] = report_entries
@@ -757,13 +896,18 @@ def main(argv: list[str] | None = None) -> int:
     gate.add_argument("--has-secrets", default="false")
     parser.add_argument("--baseline", action="store_true", help="write a new snapshot artifact; no gate")
     parser.add_argument("--simulate-regression", action="store_true", help="the negative proof (intentionally red)")
+    parser.add_argument("--rows", default="", help="DIAGNOSTIC: gate only these smoke rows, e.g. 24 (gate mode only)")
     args = parser.parse_args(argv)
     if args.command == "gate":
         return gate_main(args)
     if args.baseline and args.simulate_regression:
         print("::error::configuration error: --baseline and --simulate-regression are exclusive")
         return 2
-    return run_live("baseline" if args.baseline else "simulate" if args.simulate_regression else "gate")
+    if args.rows and (args.baseline or args.simulate_regression):
+        print("::error::configuration error: --rows is a gate-mode diagnostic; not with --baseline or "
+              "--simulate-regression")
+        return 2
+    return run_live("baseline" if args.baseline else "simulate" if args.simulate_regression else "gate", args.rows)
 
 
 if __name__ == "__main__":
