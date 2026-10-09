@@ -72,9 +72,13 @@ phase0/
   capability and reimplements nothing. `graph.py` (compiled graph + the `ask()` entry adapter),
   `state.py` (the `AgentState` channels, reducers, and `fresh_state()`), `tools.py` (the G1 tools). `graph.py` also
   holds the G12 fan-out nodes (`decompose`, `branch_retrieve`, `join`), compiled in only when `FANOUT_ENABLED` is set;
-  it ships off, so the served graph is the pre-G12 one.
+  it ships off. The served graph adds G10b's approval gate (`review_gate` → `review_wait`) immediately before
+  `generate`. `review.py` holds its trigger policy, the SQLite checkpointer factory (`REVIEW_DB_PATH`), the TTL and the
+  per-thread lock. `state.py`'s `retrieved` reducer appends exactly as `operator.add` and also accepts the
+  `RemoveChunk`/`Reset` sentinels a reviewer's amendment uses.
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
-  `POST /mcp`, the G5 MCP server over streamable HTTP),
+  `POST /mcp`, the G5 MCP server over streamable HTTP; G10b adds `POST /ask/agent/resume` and
+  `GET /ask/agent/review/{thread_id}`, and `/ask/agent` answers 202 when the approval gate pauses),
   `citations.py`, `confidence.py`, `schemas.py`, and `guards.py` (G6: the output guard, applied to both endpoints
   in the shared assembly; the input guard is built but switched off by `INPUT_GUARD_ENABLED`). `agent.graph` is imported lazily, so an agent-side import
   failure can break only `/ask/agent`; `api.main` imports `mcp_server` eagerly (a route must exist at startup),
@@ -106,7 +110,8 @@ promoted path.
 **`POST /ask/agent` (`PIPELINE=agent`) — the richer path.** `agent.graph.ask`, a compiled LangGraph:
 
 ```
-router → {direct: retrieve | source_scoped: source_scoped_retrieve} → tool_decide ⇄ tool_exec → generate
+router → {direct: retrieve | source_scoped: source_scoped_retrieve} → tool_decide ⇄ tool_exec
+       → review_gate → [review_wait] → generate
 ```
 
 - **router** classifies whether a question is anchored to one named document; on any error it falls
@@ -115,6 +120,13 @@ router → {direct: retrieve | source_scoped: source_scoped_retrieve} → tool_d
   *or* an empty result falls back to the full-corpus query (and reports the route it actually ran).
 - **tool_decide ⇄ tool_exec** is the **G1 bounded tool loop** (see below), capped and with per-tool
   timeouts; when no tool is needed it passes straight to `generate`.
+- **review_gate → review_wait** is the **G10b approval gate**.
+  - It fires on a pre-registered policy on the question's wording, or on a source-scoped fallback; when it doesn't
+    fire it is a no-op.
+  - When it fires, `review_wait` pauses with LangGraph's `interrupt()`. The thread is checkpointed (a fresh uuid4 per
+    request), and the API answers 202 with the evidence.
+  - A reviewer resolves it through `POST /ask/agent/resume`. With no checkpointer configured, the request is refused,
+    never answered unreviewed.
 - **generate** wraps the frozen `src.generate.generate` and short-circuits to an empty answer on a
   retrieval error (no LLM cost), mirroring `pipeline.ask` exactly.
 
@@ -215,9 +227,12 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     [`agent/graph.py`](agent/graph.py)). Built, measured and switched off. The design is in
     [`eval/g12_design.md`](eval/g12_design.md); the pre-registration and its outcome are in
     [`eval/g12_PREDICTION.md`](eval/g12_PREDICTION.md). This file does not carry a result those files own.
-  - **G10b = a checkpointer + human-approval gate.** Not built; **pre-designed** in
-    [`eval/replay_safety_design.md`](eval/replay_safety_design.md) (interrupt/resume, one-thread-per-
-    question isolation, the persistence hazard on a no-persistent-disk host).
+  - **G10b = a checkpointer + human-approval gate** ([`agent/review.py`](agent/review.py), the `review_gate` and
+    `review_wait` nodes in [`agent/graph.py`](agent/graph.py)). Built and shipped: `/ask/agent` pauses before
+    generation on a pre-registered trigger and resumes on approve, reject or amend (removals only). Pre-designed in
+    [`eval/replay_safety_design.md`](eval/replay_safety_design.md); the design is in
+    [`eval/g10b_design.md`](eval/g10b_design.md), and the pre-registration and its outcome are in
+    [`eval/g10b_PREDICTION.md`](eval/g10b_PREDICTION.md). This file does not carry a result those files own.
 
 ## 7. Conventions & guardrails
 

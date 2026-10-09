@@ -216,3 +216,17 @@ RAGAS answer-correctness embedding calls are not counted; they are negligible at
 - PR runs #1 and #4 skipped before a snapshot existed, at no cost.
 
 **What the cache is worth.** A fully cached run costs about $0.0056, generation only. A cold run (PR #5) cost $0.0164.
+
+## G. G10b approval gate (2026-10-09) [d, from measured token counts × list price; not dashboard-reconciled]
+**Source:** the `spend` block of `eval/review_metrics.json`.
+
+| item | chat requests | prompt tokens (cached) | completion tokens | cost | flag |
+|---|--:|--:|--:|--:|:--|
+| GATE 1 probes (local files, installed packages, three documentation pages) | 0 | — | — | $0 | d |
+| P1: 40 questions × 3, gate decision only (generation stubbed) | 253 | 1,077,193 (639,744) | 10,773 | $0.1201 | d |
+| P2: rows 10 and 11 × 3, four paths plus an ungated arm | 16 | 76,057 (61,696) | 1,519 | $0.0077 | d |
+| P4 and P5: 25 rows × 3 × 3 arms (generation stubbed, decisions memoized) | 51 | 224,954 (198,400) | 2,106 | $0.0201 | d |
+| P3a: one live pause, a restart and a resume (a separate uvicorn process) | about 3 | — | — | <$0.002 | d (estimate; not counted) |
+| **total** | | | | **~$0.15** of the $3.00 budget | d |
+
+The G9 smoke runs on this PR's pushes are not included; their spend is in each run's artifact.

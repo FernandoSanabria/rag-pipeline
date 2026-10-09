@@ -80,7 +80,7 @@ Embeddings: OpenAI `text-embedding-3-small`. Generation: `gpt-4o-mini` (temperat
 The shipped pipeline is v4 dense retrieval over the **`semantic_v2`** namespace (structure-aware re-chunking — the 2B lever that recovered the NIOSH-IDLH-vs-EPA-endpoint comparison). On top of it, the LangGraph agent adds a **router** that source-scopes single-document questions. Two endpoints serve it:
 
 - **`POST /ask`** — the direct v4 path (`retrieve → generate`) on `semantic_v2`. The shipped, promoted default: no router, no per-request LLM tax.
-- **`POST /ask/agent`** — `router → {direct | source_scoped} → tool_decide ⇄ tool_exec → generate`. Pays a `gpt-4o-mini` router call plus a `gpt-4o-mini` tool-decision call on **every** request; when a question needs it, runs bounded tools (ppm↔mg/m³ exposure-limit conversion, document-metadata lookup) — a loop **capped at 3 iterations**, with per-tool timeouts and honest refusal on failure — otherwise passes straight to `generate` unchanged. Returns the route taken (`route` / `source_doc_id` / `routing_reason`). The richer path — **not** a drop-in replacement for `/ask`.
+- **`POST /ask/agent`** — `router → {direct | source_scoped} → tool_decide ⇄ tool_exec → review_gate → generate`. Pays a `gpt-4o-mini` router call plus a `gpt-4o-mini` tool-decision call on **every** request; when a question needs it, runs bounded tools (ppm↔mg/m³ exposure-limit conversion, document-metadata lookup) — a loop **capped at 3 iterations**, with per-tool timeouts and honest refusal on failure — otherwise passes straight to `generate` unchanged. Returns the route taken (`route` / `source_doc_id` / `routing_reason`). Questions that name an exposure limit pause for human review first (see [Approval gate](#approval-gate)). The richer path — **not** a drop-in replacement for `/ask`.
 
 <!-- regenerate: uv run python scripts/render_graph.py -->
 ```mermaid
@@ -91,6 +91,8 @@ graph TD;
     source_scoped_retrieve(source_scoped_retrieve)
     tool_decide(tool_decide)
     tool_exec(tool_exec)
+    review_gate(review_gate)
+    review_wait(review_wait)
     generate(generate)
     __end__([END]):::last
     __start__ --> router;
@@ -99,8 +101,13 @@ graph TD;
     retrieve --> tool_decide;
     source_scoped_retrieve --> tool_decide;
     tool_decide -. tools .-> tool_exec;
-    tool_decide -. done .-> generate;
+    tool_decide -. done .-> review_gate;
     tool_exec --> tool_decide;
+    review_gate -. not fired .-> generate;
+    review_gate -. fired .-> review_wait;
+    review_gate -. no checkpointer .-> __end__;
+    review_wait -. approve / amend .-> generate;
+    review_wait -. reject .-> __end__;
     generate --> __end__;
     classDef first fill-opacity:0
     classDef last fill:#bfb6fc
@@ -172,6 +179,32 @@ What it was measured to do (counts with N):
 - **Hard negatives.** Neither version blocked any of the 9 (0/27 decisions each).
 - **Where it stands.** Its code and tests stay in the repo, switched off by `INPUT_GUARD_ENABLED = False`. The record is in [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).
 - **Without it,** the generator's cite-or-refuse prompt is what keeps an out-of-scope question from being answered.
+
+## Approval gate
+
+`/ask/agent` can **pause before generation** and hand the retrieved evidence to a reviewer (G10b). The design is in [`eval/g10b_design.md`](eval/g10b_design.md); the predictions and every measured count are in [`eval/g10b_PREDICTION.md`](eval/g10b_PREDICTION.md).
+
+**When it pauses.** The gate fires when the question names an occupational exposure limit (`exposure limit`, `IDLH`, `PEL`, `REL`, `TLV`, `STEL`), or when a question routed to one named document had to fall back to the whole corpus.
+- **The trigger is a policy on the question's wording, not a measurement of answer quality.**
+- **Two named misses:**
+  - "immediately dangerous to life or health" spelled out does not fire, though "IDLH" does;
+  - "exposure ceiling" does not fire.
+- **Measured over 3 trials:** it fired on exactly frozen rows 9, 10 and 11 (3/3 each). It fired on none of the other 25 frozen rows, the 3 capability questions or the 9 guardrail hard negatives.
+
+**The four paths.** A paused request gets HTTP 202 with a `thread_id`, the trigger `reason`, the evidence `generate` would receive, and an absolute UTC `expires_at`. `POST /ask/agent/resume` then:
+- **approve:** generates on exactly that evidence, and the output guard still applies (review is not a bypass);
+- **reject:** returns a refusal, and nothing is generated;
+- **amend:** removes the listed evidence items, then generates;
+- **after the 24-hour TTL:** returns a refusal.
+
+Measured live on rows 10 and 11, 3 trials each, every path did what it should: approve 6/6, reject 6/6, amend 6/6, expired 6/6. A second resume returns the recorded resolution, never a second answer. Questions that don't trigger are unchanged: the input to `generate` was byte-identical to the pre-gate graph in 75/75 runs, and the checkpointer added 2.4 ms at p50.
+
+**Durability.** A paused review lives in a SQLite checkpoint (`REVIEW_DB_PATH`).
+- **On a host with a persistent filesystem, it survives a process restart.** That is tested in a fresh process, and live with a uvicorn process killed and restarted.
+- **On Render's free plan it does not:** the filesystem is replaced on every redeploy, restart and idle spin-down. The resume then **fails closed** with "expired or lost", never an unreviewed answer.
+- **With no checkpointer configured,** a question that triggers is refused rather than answered.
+
+**No authentication.** Anyone who can reach the service can approve or amend a paused safety answer. A reviewer token is the follow-on. Until then, amend can only **remove** evidence, never add it: [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).
 
 ## Evaluation in CI
 

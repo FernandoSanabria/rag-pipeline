@@ -484,3 +484,29 @@ That is 2 noise reds in 7 gated runs, so **the registered demotion fired**: G9's
 
 **The required check.** G9b's P1b and P2b hold, so the maintainer may make `eval-smoke / smoke` and `gate` required.
 The demotion rule stays registered.
+
+## G10b approval gate (recorded 2026-10-09): checkpointed pause/resume — P1, P2, P3a, P4, P5 hold
+- **Sources:**
+  - the pre-registration and outcome are in [`g10b_PREDICTION.md`](g10b_PREDICTION.md);
+  - the derived metrics are in [`review_metrics.json`](review_metrics.json);
+  - the runner is [`review_eval.py`](../scripts/review_eval.py), in-process, 2026-10-09 07:03–07:12 UTC.
+- **What was measured:**
+  - **the build:** `180c875`, tagged `evidence/g10b-build`;
+  - **the pre-G10b arm:** `agent/graph.py` and `agent/state.py` at `b278f18`;
+  - **generation:** `fp_2fb502e36f`.
+- **Rows are 1-based.**
+- **This is not a RAGAS run.** G10b measures the gate's mechanism; the answers' metrics are unchanged by construction
+  on the non-firing path (P4).
+
+| prediction | what was measured | count | verdict |
+|---|---|---|---|
+| P1 fire set | paused, by row × trial | frozen 9, 10, 11: 3/3 each; other frozen 0/75; smoke 0/24; capability 0/9; hard negatives 0/27 | HOLDS |
+| P2 approve | one `generate` call, contexts byte-identical to the ungated run | 6/6 (output guard withheld 0) | HOLDS |
+| P2 reject | refusal (`review`, `rejected`), 0 `generate` calls | 6/6 | HOLDS |
+| P2 amend | `generate` input = paused set minus the lowest-ranked document chunk | 6/6 (output guard withheld 0) | HOLDS |
+| P2 expired | TTL 5 s, resumed after 6 s: refusal (`expired_or_lost`), 0 `generate` calls | 6/6 | HOLDS |
+| P3a restart | hermetic subprocess test; local uvicorn paused, killed, restarted on the same file, still pending, answered on approve | pass; pass | HOLDS |
+| P3b Render redeploy | registered: `expired_or_lost` after one redeploy (option A) | after the merge | NOT TESTED |
+| P4 pass-through | contexts handed to `generate`, three arms | 75/75 identical | HOLDS |
+| P5 latency | p50 with the checkpointer minus without (generation stubbed, decisions memoized) | +2.4 ms | HOLDS |
+| P6 G9 smoke | this PR's eval-smoke runs | read at GATE 3 | — |
