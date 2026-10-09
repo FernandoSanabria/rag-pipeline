@@ -304,3 +304,25 @@ committed file.
 ## R8 — Characterization (the core of the pre-registration)
 Five `workflow_dispatch` runs on the **same commit** (the branch head after the snapshot is committed), before any
 required-check decision. **0 reds are predicted.** Each run's per-row values are recorded in METRICS_HISTORY's G9 block.
+
+## After GATE 1 (appended 2026-10-09)
+**Outcome.** G9 as registered: P1 FALSIFIED (2 of 5 characterization runs red, both T2 on row 24), and the check is
+demoted to reported-only. See the Outcome section of [`g9_PREDICTION.md`](g9_PREDICTION.md). The G9b pre-registration
+follows it there: T1 hard alone; T2 and T3 reported.
+
+**What the smoke evaluates** (C1 note 1, stated plainly).
+- **The path.** Each row goes through `api.main._answer`, the one wiring point of `/ask` and `/ask/agent`:
+  - the input guard (off in the shipped app);
+  - then the pipeline (`src.pipeline.ask`, or `agent.graph.ask` for row 24);
+  - then the output guard and the response assembly.
+- **The judged answer is the served answer.**
+- **Not exercised:** the HTTP layer, the Pydantic response model and status codes. `tests/test_api.py` covers them
+  hermetically.
+- **So a red can catch:**
+  - a change in a row's retrieved evidence (T1);
+  - the refusal row no longer refusing (T1);
+  - a less-faithful served answer (T2), including a guard change that withholds or passes an answer differently.
+- **It cannot catch:**
+  - a break in the response contract or in citation rendering;
+  - anything on rows outside the 8;
+  - the input guard, which is off.

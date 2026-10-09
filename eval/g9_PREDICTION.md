@@ -107,3 +107,102 @@ reported-only, and the threshold is re-derived from the accumulated runs.
 ## Spend
 About $0.20 of the $3.00: 7 workflow runs (the baseline, 5 characterization runs and the negative proof) at about $0.02
 each, plus dev runs.
+
+## Outcome (G9 as registered, recorded 2026-10-09)
+**P1 is FALSIFIED (2 of 5 runs red). P2, P3, P4 and P5 HOLD. P6 holds at this commit and is re-checked on the final
+head.**
+
+The predictions above are unchanged; this section only appends. Rows are 1-based; times are UTC.
+
+**The ruling.** The registered demotion rule fired, so **the check is demoted to reported-only and is not a required
+check**. A new pre-registration, G9b, follows below.
+
+**Runs.** All are `eval-smoke` runs on this branch. A "gated" run is one whose `smoke` job ran.
+
+| run | trigger | created (UTC) | commit | role | result |
+|---|---|---|---|---|---|
+| #2 | workflow_dispatch | 2026-10-09 05:01 | `8856abd` | baseline; artifact lost (upload-artifact v4 skips hidden paths) | green |
+| #3 | workflow_dispatch | 2026-10-09 05:04 | `1db5e6e` | **the baseline**, committed as `eval/smoke_snapshot.json` | green |
+| #5 | pull_request | 2026-10-09 05:06 | `18b07c8` | first gated PR run (cold cache) | green |
+| #6–#10 | workflow_dispatch | 2026-10-09 05:06–05:11 | `18b07c8` | **P1, P3, P4, P5: characterization** | #6 and #10 red |
+| #11 | workflow_dispatch | 2026-10-09 05:38 | `18b07c8` | **P2: negative proof** | red, as required |
+
+Runs #1 and #4 were `pull_request` runs before a snapshot existed; their `smoke` job skipped with "baseline pending".
+
+### P1 — FALSIFIED: 2 of 5 runs red
+Each cell is faithfulness, then correctness. "(judged)" marks a cache miss; bold marks a T2 red.
+
+| row | snapshot | #6 | #7 | #8 | #9 | #10 |
+|--:|---|---|---|---|---|---|
+| 1 | 1, 0.6823 | 1, 0.6823 | 1, 0.6823 | 1, 0.6823 | 1, 0.6823 | 1, 0.6823 |
+| 4 | 1, 0.7853 | 1, 0.7853 | 1, 0.7853 | 1, 0.7853 | 1, 0.7853 | 1, 0.7853 (judged) |
+| 15 | 1, 0.4947 | 1, 0.4947 | 1, 0.4947 | 1, 0.4947 | 1, 0.4947 | 1, 0.4947 |
+| 20 | 1, 0.3516 | 1, 0.3516 | 1, 0.3516 | 1, 0.3516 | 1, 0.3516 | 1, 0.3516 |
+| 21 | 1, 0.9564 | 1, 0.9549 | 1, 0.9564 | 1, 0.9549 | 1, 0.9549 | 1, 0.9564 |
+| 25 | 0, 0.0362 | 0, 0.0362 | 0, 0.0362 | 0, 0.0362 | 0, 0.0362 | 0, 0.0362 |
+| 26 | 1, 0.4733 | 1, 0.4733 | 1, 0.5767 | 1, 0.4733 | 1, 0.4733 | 1, 0.5767 |
+| 24 | 1, 0.911 | **0.75**, 0.5928 (judged) | 1, 0.911 | 1, 0.911 | 1, 0.911 | **0.75**, 0.5928 |
+
+**Both reds are T2 on row 24** (`/ask/agent`, source-scoped). Row 24 served two answers:
+- **A,** the snapshot's: 154 characters, faithfulness 1.0, correctness 0.911;
+- **B:** 160 characters, faithfulness 0.75 (the judge found 1 of 4 statements unsupported), correctness 0.5928.
+
+**What was identical between A and B:**
+- byte-identical contexts;
+- the same route (`source_scoped`, no tool chunk);
+- the same generation fingerprint (`fp_2fb502e36f`, seed 42, temperature 0).
+
+**How each red arose.** Run #6 judged B fresh; run #10 drew B again, and the cache replayed the same 0.75. The cache
+makes a score deterministic per answer; it can't make generation choose A.
+
+**Where B appears.**
+- **On GitHub-hosted runners:** in 2 of the 7 runs that served row 24 (#3, #5–#10).
+- **Locally, never:** 0 of 24 regenerations through the runner's own binding (2026-10-09, all with byte-identical
+  contexts), and 0 of 23 historical row-24 answers in the gitignored `eval/results/`.
+- **Its text has not been read.** The artifacts carry hashes only, by design. G9b adds a way to read it, and its
+  label is recorded in G9b's outcome.
+
+### P2 — HOLDS
+Run #11 went red with exactly the two injected failures named:
+- **T1 row 1:** the k=2 set kept 2 of 10 pages;
+- **T2 row 4:** the canned answer's faithfulness was 0.0, against the snapshot's 1.0.
+
+`negative_proof.held` was true. The other 6 rows passed.
+
+### P3 — HOLDS: 40/40
+T1 set equality held on 8 rows in each of 5 runs (48/48 including PR run #5).
+
+**Run #10, row 4: a rank swap.**
+- Pages 14 and 17 of the Fisher 667 manual swapped ranks 7 and 8; their snapshot scores were 8e-06 apart.
+- This is the **third recorded instance of embedding non-reproducibility**, after G5's P2 swap and G5's N=5 post-hoc
+  embedding check.
+- T1 compares the set, order-insensitive, so it passed, as designed. The reordered contexts changed the cache key,
+  so row 4 was re-judged (faithfulness 1.0).
+
+### P4 — HOLDS: 7, 8, 8, 8, 7 hits
+- **The predicted miss didn't occur.** Row 21's answers alternated between two variants, and both were already cached
+  from runs #2 and #3.
+- **The misses came elsewhere:** row 24 in #6 (answer B, first seen) and row 4 in #10 (the reordered contexts).
+- **The saving:** a cold run (PR #5, 0 hits) cost $0.0164, and a fully cached run cost $0.0056. That is about
+  **$0.0107 per run**.
+
+### P5 — HOLDS
+- **Cost:** $0.0056–0.0076 per run (limit $0.10).
+- **`smoke` job time:** 31–49 s (limit 6 min).
+
+### P6 — holds at this commit
+`git diff origin/main -- .github/workflows/ci.yml` is empty, and `test-and-build` passed on every push.
+
+### The smoke-reds ledger (refinement D) and the demotion
+1. Run #6, row 24, T2: **noise.** The code was unchanged since the baseline; it is generation variance on identical
+   input.
+2. Run #10, row 24, T2: **noise.** The same answer B.
+
+That is **2 noise reds in 6 gated runs** (#5–#10), so the registered rule fires: the check is demoted to reported-only,
+and the threshold is to be re-derived from accumulated runs. The running list continues in
+[`METRICS_HISTORY.md`](METRICS_HISTORY.md)'s G9 block.
+
+**Spend so far:** about $0.14, comprising:
+- the CI runs, $0.084;
+- the local dev runs, $0.035;
+- the local regeneration of row 24, $0.030.
