@@ -1,0 +1,123 @@
+{
+  "timestamp_utc": "20261009T070305Z",
+  "parts": [
+    "P1",
+    "P2",
+    "P4",
+    "P3a"
+  ],
+  "P1": {
+    "fired_rows": [
+      "frozen:10",
+      "frozen:11",
+      "frozen:9"
+    ],
+    "fires_per_predicted_row": {
+      "frozen:9": 3,
+      "frozen:10": 3,
+      "frozen:11": 3
+    },
+    "off_prediction": [],
+    "smoke_fires": 0,
+    "hard_negative_fires": 0,
+    "capability_fires": 0,
+    "other_frozen_fires": 0,
+    "reasons": [
+      "exposure_limit_named"
+    ],
+    "statuses": [
+      "answered",
+      "pending_review"
+    ]
+  },
+  "P2": {
+    "paths": {
+      "approve": {
+        "n": 6,
+        "as_predicted": 6,
+        "output_guard_withheld": 0
+      },
+      "reject": {
+        "n": 6,
+        "as_predicted": 6,
+        "output_guard_withheld": 0
+      },
+      "amend": {
+        "n": 6,
+        "as_predicted": 6,
+        "output_guard_withheld": 0
+      },
+      "expired": {
+        "n": 6,
+        "as_predicted": 6,
+        "output_guard_withheld": 0
+      }
+    },
+    "paused_equals_ungated": 24,
+    "n_paused": 24
+  },
+  "pre_g10b_commit": "b278f18",
+  "P4_P5": {
+    "n": 75,
+    "identical": 75,
+    "non_identical_rows": [],
+    "paused": 0,
+    "p50_wall_s": {
+      "pre_g10b": 0.1582,
+      "g10b_no_cp": 0.1562,
+      "g10b_cp": 0.1586
+    },
+    "added_p50_ms": 2.4,
+    "paired_added_p50_ms": 2.4
+  },
+  "P3a": {
+    "paused_status": 202,
+    "first_process_exit": -15,
+    "status_after_restart": "pending",
+    "resume_status": 200,
+    "resume_guard": null,
+    "answered": true,
+    "status_after_resume": "approved",
+    "holds": true
+  },
+  "spend": {
+    "P1": {
+      "chat_requests": 253,
+      "prompt_tokens": 1077193,
+      "prompt_tokens_cached": 639744,
+      "completion_tokens": 10773,
+      "cost_usd": 0.120062,
+      "wall_s": 342.1,
+      "generation_backends": []
+    },
+    "P2": {
+      "chat_requests": 16,
+      "prompt_tokens": 76057,
+      "prompt_tokens_cached": 61696,
+      "completion_tokens": 1519,
+      "cost_usd": 0.007693,
+      "wall_s": 69.3,
+      "generation_backends": [
+        {
+          "model_name": "gpt-4o-mini-2024-07-18",
+          "system_fingerprint": "fp_2fb502e36f",
+          "n_calls": 12
+        }
+      ]
+    },
+    "P4_P5": {
+      "chat_requests": 51,
+      "prompt_tokens": 224954,
+      "prompt_tokens_cached": 198400,
+      "completion_tokens": 2106,
+      "cost_usd": 0.020127,
+      "wall_s": 97.7,
+      "generation_backends": []
+    },
+    "P3a": {
+      "wall_s": 8.4,
+      "cost_usd": "not counted (a separate uvicorn process); one router, tool and generate call"
+    }
+  },
+  "cost_usd_derived": 0.147882
+}
