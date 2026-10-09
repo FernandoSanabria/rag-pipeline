@@ -265,3 +265,69 @@ the threshold is re-derived.
    - **(ii)** the judge penalizing a phrasing change.
 
    **Either way,** G9's two reds stay classified as noise, because the code was unchanged.
+
+## G9b outcome (recorded 2026-10-09)
+**P1b, P2b and P3b all HOLD.** The G9b pre-registration above is unchanged; this section only appends. Rows are
+1-based; times are UTC.
+
+**Runs.** All are on the G9b build, `8ed1667`.
+
+| run | trigger | created (UTC) | role | result | faithfulness hits | T2 reported (not red) | cost | `smoke` job |
+|---|---|---|---|---|--:|---|--:|--:|
+| #14 | pull_request (head `8ed1667`) | 05:46 | gated PR run | green | 7 | — | $0.0069 | 45 s |
+| #15 | workflow_dispatch | 05:46 | **P1b, run 1** | green | 6 | row 21 (0.3333) | $0.0093 | 48 s |
+| #16 | workflow_dispatch | 05:47 | **P1b, run 2** | green | 8 | row 21 (0.3333) | $0.0056 | 33 s |
+| #17 | workflow_dispatch | 05:48 | **P1b, run 3** | green | 7 | row 21 (0.3333) | $0.0069 | 37 s |
+| #18 | workflow_dispatch | 05:49 | **P1b, run 4** | green | 7 | — | $0.0076 | 41 s |
+| #19 | workflow_dispatch | 05:50 | **P1b, run 5** | green | 8 | — | $0.0056 | 36 s |
+| #20 | workflow_dispatch | 05:52 | **P2b, negative proof** | red, as required | 8 | rows 4 and 21 | $0.0053 | 34 s |
+| #21–#25 | workflow_dispatch, `rows=24` | 05:53–05:56 | DIAGNOSTIC (reading B) | green | 1 each | — | $0.0012 each | 22–28 s |
+
+### P1b — HOLDS: 0 reds in 5 runs (#15–#19)
+
+### P2b — HOLDS
+- Run #20 went red with **T1 row 1** named (the k=2 set kept 2 of 10 pages).
+- T2's reported line on row 4 was present (the canned answer's faithfulness was 0.0).
+- `negative_proof.held` was true.
+
+### P3b — HOLDS: 40/40
+T1 set equality held on every row in every run. It is 48/48 counting PR run #14.
+
+### Reported T2 breaches: row 21, in 3 of 5 runs, plus P2b
+**The scores.** In #15, #16 and #17, row 21 served one of two new answer variants:
+- faithfulness **0.3333**, against the snapshot's 1.0;
+- correctness 0.9557 and 0.9565, against the snapshot's 0.9564.
+
+**Under G9's hard T2, 3 of these 5 runs would have been red.**
+
+**Read through the ciphertext** (local only; no text is committed). Both variants:
+- conclude that the two documents agree on 1 ppm (3 mg/m³);
+- attribute "the OSHA air contaminants table" value to the NIOSH Pocket Guide page whose entry reports OSHA's PEL.
+
+OSHA Table Z-1's own chlorine line is not in row 21's single-query context (G12's finding).
+
+**Not CI-only.** A low-faithfulness row-21 variant (0.3333) also appeared in a local dev run on 2026-10-08.
+
+### Answer B (G9's row 24): unclassified, by the registered rule
+**The rule's wording:** B reproduced only on GitHub-hosted runners (2/7) and never locally (0/24 plus 23 historical);
+its text was not readable through the public artifact.
+
+**Added, from the G9b runs:** after encrypt-on-breach existed, B never recurred.
+- Row 24 served A in all 14 CI observations after 05:11 UTC (#11, #13–#25).
+- Its two B observations (#6 at 05:07 and #10 at 05:11) were the only ones.
+- Every local regeneration came after 05:11 (0/24 at about 05:25; 0/1 at about 05:45).
+- **So the data cannot separate the calling environment from a time window.**
+
+**The account headers are the same.** The generation call's `openai-organization` and `openai-project` headers were
+identical in CI and locally, so an account difference doesn't explain B.
+
+**The conditional G6 cross-reference is not added,** because B is unclassified.
+
+### Encrypt-on-breach, observed
+Every breach ciphertext from #15–#17 and #20 (6 files) decrypted with the off-repo key to text whose sha256 matched the
+reported `answer_sha256`. No plaintext answer appeared in any downloaded artifact.
+
+### The demotion window and the required check
+- **G9b's window so far:** 6 gated runs (#14–#19), 0 reds. The diagnostic runs and the negative proof are outside it.
+- **The required check:** P1b and P2b hold, so `eval-smoke / smoke` (and `gate`) may become required checks. The
+  maintainer turns that on; the agent doesn't change branch protection.

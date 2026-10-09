@@ -243,3 +243,87 @@ Recorded 2026-10-08.
 - chunk hygiene for OSHA Table Z-1.
 
 Any of them needs a new pre-registration before the switch is turned on.
+
+## G9 smoke evaluation in CI — what it is and is not shown to do
+Recorded 2026-10-09.
+- **Sources:**
+  - the design is [`g9_design.md`](g9_design.md);
+  - the pre-registrations and outcomes are in [`g9_PREDICTION.md`](g9_PREDICTION.md), G9 then G9b, tagged `prereg/g9`
+    and `prereg/g9b`;
+  - the run ledger is the G9 block of [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
+- **Rows are 1-based.**
+
+**What it is.** An 8-row smoke evaluation, [`eval-smoke.yml`](../.github/workflows/eval-smoke.yml), on every PR and
+push to `main` that touches the gated paths. It sits next to the hermetic `ci.yml`, which it does not touch.
+- **G9 gated T1 and T2 hard. It was falsified:**
+  - P1 failed, with 2 of 5 runs red on T2 for row 24;
+  - the registered demotion fired.
+- **G9b gates T1 alone:**
+  - T1 is retrieval set equality, plus the refusal identity on row 25;
+  - faithfulness (T2) and answer correctness (T3) are reported;
+  - P1b, P2b and P3b hold.
+
+**What it covers, and what it doesn't.**
+- **The served path.** It gates the served path through `api.main._answer`, so retrieval, generation and the output
+  guard (with the input guard off, as shipped). The judged answer is the served one.
+- **Hermetic only:** the HTTP layer and the response contract (status codes, the Pydantic model, citation rendering)
+  are covered by `tests/test_api.py`, not by the smoke.
+- **The scope is the 8 rows.** Nothing outside them is evaluated in CI; the full 28 stay a manual `run_eval.py` run.
+
+**Faithfulness is reported, not gated.**
+- **Generation varies on identical input.** Row 24 served answer B (faithfulness 0.75) in 2 of 7 G9 runs, with
+  byte-identical contexts and the same fingerprint.
+- **Row 21 also varies.** It served two new variants at faithfulness 0.3333 in 3 of 5 G9b runs. Read through the
+  breach ciphertext, both conclude that the documents agree, but attribute the OSHA table's value to the NIOSH Pocket
+  Guide page that reports OSHA's PEL.
+- **Under a hard T2, both would be reds** with no code change.
+
+**Answer B is unclassified.**
+- B reproduced only on GitHub-hosted runners (2/7) and never locally (0/24 plus 23 historical); its text was not
+  readable through the public artifact.
+- **It never recurred** in the 14 CI observations after its last one (05:11 UTC). The local attempts all came after
+  that time, so calling environment and time window aren't separable.
+- **The account headers match.** The generation call's organization and project headers are identical in CI and
+  locally.
+
+**Secrets surface.**
+- The two keys are available to `pull_request` runs from same-repo branches, which means anyone with write access can
+  read them by editing the workflow in a PR. That is acceptable for a single-owner repo, named as the trade-off.
+- Fork PRs never receive them (skip = neutral), and a skipped required check counts as satisfied.
+
+**The breach key (`eval/smoke_pubkey.asc`).**
+- **Purpose:** the maintainer can read the one thing the public artifact otherwise withholds, a breaching row's
+  served answer, without publishing it.
+- **What is encrypted, and when:**
+  - only the answer text of a row with a T1 failure or a T2 floor breach;
+  - never contexts, questions or other document text.
+
+  It is written as one file per row, `breaches/row-<n>.asc`, in the run's artifact, next to the report's hashes.
+- **The key:**
+  - an OpenPGP key with primary fingerprint `0A23108E5E612C30A84874FC1A47B75AB89F83AE` (Ed25519) and encryption
+    subkey `E6C4AFC0058EF625E2015BF435F761047666962B` (cv25519);
+  - only the public key is in the repository;
+  - the private key is held off-repo by the maintainer.
+- **The failure mode:**
+  - without gpg, or on any gpg error, nothing is written: never plaintext;
+  - the runner also discards any output that contains the plaintext.
+- **Rotation:** replace the `.asc` and `PUBKEY_FINGERPRINT` in `scripts/smoke_eval.py`. Older ciphertexts still need
+  the older private key.
+
+**The cache, the snapshot and the paths.**
+- **A PR's first run is cold.** Caches are scoped per ref, and a PR's merge ref can't see its branch's dispatch
+  caches. So the first run of a PR re-judges every row (PR #5: 0 hits, $0.016) until `main` has a cache.
+- **The snapshot changes only through a deliberate re-baseline commit.** A diff that touches both the snapshot and
+  `src/`, `agent/` or `api/` gets a `::warning::`.
+- **`data/manifest.json` is not a gated path,** although the router's document catalog comes from it. A manifest-only
+  change doesn't run the smoke.
+
+**The required check.** P1b and P2b hold, so the maintainer may make `eval-smoke / smoke` and `gate` required. The
+agent doesn't change branch protection. The registered demotion rule still applies: two noise reds in any twenty gated
+runs.
+
+**Commits after the squash.** The measured commits are tagged so the docs' citations resolve after the merge:
+- `evidence/g9-build`;
+- `evidence/g9-baseline`;
+- `evidence/g9-characterization`;
+- `evidence/g9b-characterization`.

@@ -326,3 +326,22 @@ follows it there: T1 hard alone; T2 and T3 reported.
   - a break in the response contract or in citation rendering;
   - anything on rows outside the 8;
   - the input guard, which is off.
+
+**The breach key (`eval/smoke_pubkey.asc`).**
+- **Purpose:** the maintainer can read the one thing the public artifact otherwise withholds, a breaching row's
+  served answer, without publishing it.
+- **What is encrypted, and when:**
+  - only the answer text of a row with a T1 failure or a T2 floor breach;
+  - never contexts, questions or other document text.
+
+  It is written as one file per row, `breaches/row-<n>.asc`, in the run's artifact, next to the report's hashes.
+- **The key:**
+  - an OpenPGP key with primary fingerprint `0A23108E5E612C30A84874FC1A47B75AB89F83AE` (Ed25519) and encryption
+    subkey `E6C4AFC0058EF625E2015BF435F761047666962B` (cv25519);
+  - only the public key is in the repository;
+  - the private key is held off-repo by the maintainer.
+- **The failure mode:**
+  - without gpg, or on any gpg error, nothing is written: never plaintext;
+  - the runner also discards any output that contains the plaintext.
+- **Rotation:** replace the `.asc` and `PUBKEY_FINGERPRINT` in `scripts/smoke_eval.py`. Older ciphertexts still need
+  the older private key.

@@ -187,3 +187,32 @@ generation prompts. OpenAI's prompt cache therefore served 79% of the v1 run's p
 | **total** | **764** | | | **~$0.28** of the $3.00 budget | d |
 
 RAGAS answer-correctness embedding calls are not counted; they are negligible at this list price.
+
+## F. G9 smoke evaluation in CI (2026-10-08 → 10-09) [d, from measured token counts × list price; not dashboard-reconciled]
+**Sources:** each CI run's report artifact (its `spend` block) and the local runs' printed spend. The run numbers are
+`eval-smoke` runs; see METRICS_HISTORY's G9 block.
+
+| item | chat requests | prompt tokens (cached) | completion tokens | embedding tokens | cost | flag |
+|---|--:|--:|--:|--:|--:|:--|
+| GATE 1 probes (8 embeddings, 8 Pinecone queries) | — | — | — | — | ~$0.0001 | d (estimate) |
+| local dev run, baseline mode (all 8 judged) | 50 | 156,657 (6,144) | 6,183 | 893 | $0.0268 | d |
+| local dev run, gate mode | — | — | — | — | $0.0085 | d (printed total) |
+| G9 baseline #2 (artifact lost; from its log) | — | — | — | — | $0.0163 | d (printed total) |
+| G9 baseline #3 | 20 | 90,108 (85,376) | 2,190 | 441 | $0.0084 | d |
+| G9 PR runs #5 and #13 | 65 | 237,963 (211,968) | 7,548 | 1,182 | $0.0244 | d |
+| G9 characterization #6–#10 | 60 | 365,598 (347,136) | 4,133 | 904 | $0.0313 | d |
+| G9 negative proof #11 | 20 | 75,872 (7,936) | 1,501 | 276 | $0.0117 | d |
+| local regeneration of row 24 (24 attempts) | 72 | — | — | — | $0.0304 | d (printed total) |
+| G9b local `rows=24` run (headers) | — | — | — | — | $0.0012 | d (printed total) |
+| G9b PR run #14 | 15 | 77,730 (74,368) | 1,378 | 315 | $0.0069 | d |
+| G9b characterization #15–#19 | 70 | 384,076 (349,184) | 5,922 | 1,301 | $0.0350 | d |
+| G9b negative proof #20 | 10 | 59,723 (52,352) | 511 | 152 | $0.0053 | d |
+| G9b diagnostics #21–#25 (`rows=24`) | 15 | 72,770 (67,840) | 490 | 85 | $0.0061 | d |
+| **total** | | | | | **~$0.21** of the $3.00 budget | d |
+
+**Not derived:**
+- PR run #12 was cancelled by #13 (concurrency) and left no artifact. At most it would have been one cold run, about
+  $0.016.
+- PR runs #1 and #4 skipped before a snapshot existed, at no cost.
+
+**What the cache is worth.** A fully cached run costs about $0.0056, generation only. A cold run (PR #5) cost $0.0164.
