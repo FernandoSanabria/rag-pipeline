@@ -379,10 +379,18 @@ MEASURED_EDGES = {("__start__", "router"), ("branch_retrieve", "join"), ("decomp
                   ("tool_exec", "tool_decide")}
 
 
-def test_enabled_graph_topology_matches_the_measured_build():
+# G10b inserted the approval gate between the tool loop and generation on every build. This REPLACES
+# test_enabled_graph_topology_matches_the_measured_build: the enabled build is now the measured G12 build plus exactly the
+# review gate's nodes and edges (the G12 measurements describe its non-firing path, where review_gate is a no-op).
+REVIEW_NODES = {"review_gate", "review_wait"}
+REVIEW_EDGES = {("tool_decide", "review_gate"), ("review_gate", "generate"), ("review_gate", "review_wait"),
+                ("review_gate", "__end__"), ("review_wait", "generate"), ("review_wait", "__end__")}
+
+
+def test_enabled_graph_topology_is_the_measured_build_plus_the_review_gate():
     g = graph._build_graph(fanout=True).get_graph()
-    assert set(g.nodes) == MEASURED_NODES
-    assert {(e.source, e.target) for e in g.edges} == MEASURED_EDGES
+    assert set(g.nodes) == MEASURED_NODES | REVIEW_NODES
+    assert {(e.source, e.target) for e in g.edges} == (MEASURED_EDGES - {("tool_decide", "generate")}) | REVIEW_EDGES
 
 
 # --- 12. The frozen decomposer prompt, schema and gate ----------------------------------------------------------------

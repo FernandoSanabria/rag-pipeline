@@ -11,9 +11,9 @@ A LangGraph channel with NO reducer is *last-write-wins* (overwrite). A channel 
 `Annotated[T, add]` is *accumulate* (the reducer merges the prior value with each node's
 return instead of replacing it). Two fields accumulate; the rest overwrite:
 
-THIRTEEN channels — nine overwrite, four accumulate. (`source_doc_id` was added in 2C, the three `tool_*`
-channels in G1, and `fanout` in G12; the earlier "eight" prose predated all of them — eval/replay_safety_design.md
-§1 flagged the stale count. It is corrected here.)
+FOURTEEN channels — ten overwrite, four accumulate. (`source_doc_id` was added in 2C, the three `tool_*`
+channels in G1, `fanout` in G12 and `review` in G10b; the earlier "eight" prose predated all of them —
+eval/replay_safety_design.md §1 flagged the stale count. It is corrected here.)
 
   field            reducer        why
   question         overwrite      set once at entry, read-only thereafter
@@ -24,8 +24,10 @@ channels in G1, and `fanout` in G12; the earlier "eight" prose predated all of t
                                   sequential (never parallel), so overwrite stays correct
   source_doc_id    overwrite      2C: doc to source-scope to; router sets, 2D fallback clears; sequential
   retrieval_error  overwrite      True only when retrieve_node caught an exception; single writer
-  retrieved        add (ACCUM)    parallel sub-question retrieval must CONCATENATE branches; G1: tool_exec
-                                  also appends synthetic tool-output chunks here (see G1 block below)
+  retrieved        retrieved_     parallel sub-question retrieval must CONCATENATE branches; G1: tool_exec
+                   reducer        also appends synthetic tool-output chunks here (see G1 block below). G10b: a plain
+                   (ACCUM)        list appends exactly as operator.add; the RemoveChunk / Reset sentinels let a
+                                  reviewer's amendment drop a chunk or clear the list (see the G10b block below)
   answer           overwrite      produced by ONE node (generate); no fan-in
   citations        overwrite      derived once from the deduped context; no fan-in
   trace_notes      add (ACCUM)    every node (incl. parallel branches) appends a breadcrumb
@@ -36,6 +38,10 @@ channels in G1, and `fanout` in G12; the earlier "eight" prose predated all of t
   tool_iterations  overwrite      G1: loop counter; tool_exec increments; idempotent last-write
   fanout           add (ACCUM)    G12: one record per parallel branch {branch, n, sub_question, source_doc_id,
                                   chunks, error, t_start, t_end}; the join reads it and writes `retrieved` ONCE
+  review           overwrite      G10b: the approval gate's record {status, reason, thread_id, created_at,
+                                  expires_at, op, removals, resolved_at}; {} when the gate did not fire. Written by
+                                  review_gate (pause), review_wait (approve/reject) and the resume endpoint's
+                                  update_state (amend) — all sequential
 
 Why `retrieved` MUST accumulate (the #1 silent LangGraph bug)
 -------------------------------------------------------------
@@ -120,7 +126,7 @@ tool_iterations (overwrite / LastValue): idempotent counter; a retried write re-
 
 Also NEW in G1: tool_exec is a SECOND writer of `retrieved` (add), appending synthetic tool-output chunks
 (source_doc_id="tool:<name>", page=None) so the FROZEN generate_node grounds on tool results without being
-touched. Inherits retrieved's §4 policy; retrieved's reducer STAYS operator.add (RemoveChunk deferred, §5).
+touched. Inherits retrieved's §4 policy. (G10b replaced operator.add with retrieved_reducer; see below.)
 
 --------------------------------------------------------------------------------
 G12 fan-out channel — replay rule
@@ -129,10 +135,52 @@ fanout (add, ACCUM): one record per branch, written only by branch_retrieve_node
   records by branch index (last record wins) and chunks by `chunk_content_key`, so an in-run retry of a branch
   cannot double its evidence; fresh_state per invocation (invariant (a)) blocks cross-row leaks. Never read outside
   the graph.
+
+--------------------------------------------------------------------------------
+G10b approval gate — the `retrieved` reducer and the `review` channel (eval/g10b_design.md R3, R5)
+--------------------------------------------------------------------------------
+retrieved_reducer (replaces operator.add, exactly as eval/replay_safety_design.md §5 specified): items are applied in
+  order — a plain chunk dict APPENDS (for every existing writer, the result equals operator.add's, element for
+  element); RemoveChunk(key) drops the chunk(s) whose chunk_key matches; Reset() clears the list. The sentinels are
+  MARKED DICTS ({"__review_op__": ...}) rather than classes because update_state's pending writes are serialized by the
+  checkpointer, and a plain dict round-trips without custom-class deserialization; no chunk carries the marker key.
+  update_state routes through this reducer (langgraph 1.0.1: pregel/main.py:1852 -> pregel/_algo.py:293 ->
+  channels/binop.py:92-93), which is what makes a reviewer's removal exact instead of an append.
+review (overwrite / LastValue): the gate's record, {} when it did not fire. One thread per question (a fresh uuid4
+  per ask(), never a default) keeps checkpointed state from leaking across questions, as invariant (a) requires.
 """
 
+import hashlib
+import json
 from operator import add
 from typing import Annotated, TypedDict
+
+REVIEW_OP = "__review_op__"  # marker key of the RemoveChunk / Reset sentinels; never present in a retrieved chunk
+
+
+def RemoveChunk(key: str) -> dict:  # noqa: N802 — named as eval/replay_safety_design.md §5 names it
+    """Sentinel for `retrieved`'s reducer: drop the chunk whose chunk_key(...) == key."""
+    return {REVIEW_OP: "remove", "key": key}
+
+
+def Reset() -> dict:  # noqa: N802 — named as eval/replay_safety_design.md §5 names it
+    """Sentinel for `retrieved`'s reducer: clear the list (a following plain chunk then appends to [])."""
+    return {REVIEW_OP: "reset"}
+
+
+def retrieved_reducer(current: list[dict], update: list[dict]) -> list[dict]:
+    """`retrieved`'s reducer (G10b). Plain chunks append (== operator.add); RemoveChunk(key) drops the matching chunk;
+    Reset() clears. Applied in order, so [Reset(), chunk] replaces the whole set with `chunk`."""
+    out = list(current)
+    for item in update:
+        op = item.get(REVIEW_OP) if isinstance(item, dict) else None
+        if op == "reset":
+            out = []
+        elif op == "remove":
+            out = [c for c in out if chunk_key(c) != item["key"]]
+        else:
+            out.append(item)
+    return out
 
 
 class AgentState(TypedDict):
@@ -143,7 +191,7 @@ class AgentState(TypedDict):
     route: str                                 # "direct" | "source_scoped" | "decomposed" — router sets it; source-scoped retrieve may downgrade to "direct" on 2D fallback; decompose sets "decomposed" when it fans out (G12; all sequential)
     source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (router; cleared by 2D fallback)
     retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
-    retrieved: Annotated[list[dict], add]      # ACCUMULATE across parallel sub-query retrievals
+    retrieved: Annotated[list[dict], retrieved_reducer]  # ACCUMULATE (== add for plain lists); G10b sentinels amend
     answer: str                                # final grounded answer (single writer: generate)
     citations: list[dict]                      # stays [] in 2A — API layer owns citations (see below)
     trace_notes: Annotated[list[str], add]     # ACCUMULATE per-node breadcrumbs — path record for eval
@@ -153,6 +201,8 @@ class AgentState(TypedDict):
     tool_iterations: int                       # loop counter (overwrite: tool_exec increments)
     # --- G12 parallel fan-out (dispatch-and-aggregate; eval/g12_design.md) ---
     fanout: Annotated[list[dict], add]         # ACCUMULATE one record per branch; join_node writes `retrieved` once
+    # --- G10b approval gate (eval/g10b_design.md) ---
+    review: dict                               # the gate's record; {} when the gate did not fire
 
 
 # `citations` is intentionally NOT populated by any node in the 2A skeleton. Citation ownership
@@ -182,7 +232,7 @@ class AgentState(TypedDict):
 def fresh_state(question: str) -> AgentState:
     """Build a brand-new AgentState for a single invocation (invariant (a)).
 
-    Initializes ALL THIRTEEN channels explicitly, so no node ever reads an unset channel and
+    Initializes ALL FOURTEEN channels explicitly, so no node ever reads an unset channel and
     KeyErrors. The accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY so no evidence
     leaks in from a prior call, `route` defaults to "direct" (the 2A / v4 path), `retrieval_error`
     defaults to False, and the G1 tool loop starts with no calls and zero iterations. The entry adapter
@@ -203,6 +253,7 @@ def fresh_state(question: str) -> AgentState:
         tool_results=[],
         tool_iterations=0,
         fanout=[],
+        review={},
     )
 
 
@@ -215,3 +266,9 @@ def chunk_content_key(chunk: dict) -> tuple[str | None, int | None, str]:
     digest is an equivalent representation if a compact key is preferred at the call site.
     """
     return (chunk.get("source_doc_id"), chunk.get("page"), chunk.get("text", ""))
+
+
+def chunk_key(chunk: dict) -> str:
+    """The hex-digest form of chunk_content_key (its "equivalent representation"): the key a reviewer sends back in
+    `removals`, and the key RemoveChunk matches on. sha256 over the JSON of (source_doc_id, page, text)."""
+    return hashlib.sha256(json.dumps(list(chunk_content_key(chunk)), ensure_ascii=False).encode("utf-8")).hexdigest()

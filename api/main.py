@@ -8,7 +8,10 @@ Three derived layers sit on top of `ask()` without touching retrieval/generation
 Endpoints:
   GET  /health    -> {"status": "ok"}
   POST /ask       -> AskResponse {answer, citations, confidence_score, confidence_basis, guard}
-  POST /ask/agent -> AgentAskResponse (the above + route/source_doc_id/routing_reason)
+  POST /ask/agent -> AgentAskResponse (the above + route/source_doc_id/routing_reason), or HTTP 202
+                     PendingReviewResponse when the G10b approval gate pauses the question before generation
+  POST /ask/agent/resume           -> approve | reject | amend (removals) a paused question (G10b)
+  GET  /ask/agent/review/{thread}  -> the review's status only (G10b)
   POST /mcp       -> the G5 MCP server over streamable HTTP (stateless, JSON responses; mcp_server/CONTRACT.md)
 
 Both /ask endpoints pass through ONE wiring point, `_answer`. The output guard (every figure in the answer must
@@ -31,11 +34,15 @@ unanswerable question returns HTTP 200 with the refusal answer, LOW confidence, 
 the service never errors a legitimate question it simply cannot answer.
 """
 
+import logging
+import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
 # Local-dev parity with eval/smoke scripts: populate os.environ from .env so the OpenAI/Pinecone
 # clients find their keys. No-op in the container (no .env; real env vars are injected at runtime)
@@ -45,7 +52,16 @@ load_dotenv()
 from api import guards  # noqa: E402
 from api.citations import derive_citations  # noqa: E402
 from api.confidence import score_confidence  # noqa: E402
-from api.schemas import AgentAskResponse, AskRequest, AskResponse, GuardInfo  # noqa: E402
+from api.schemas import (  # noqa: E402
+    AgentAskResponse,
+    AskRequest,
+    AskResponse,
+    GuardInfo,
+    PendingReviewResponse,
+    ResumeRequest,
+    ReviewEvidence,
+    ReviewStatusResponse,
+)
 from mcp_server.server import mcp  # noqa: E402
 from src.pipeline import ask  # noqa: E402
 
@@ -65,8 +81,25 @@ _mcp_http = mcp.streamable_http_app()  # builds the SDK's session manager and it
 INPUT_GUARD_ENABLED = False
 
 
+logger = logging.getLogger(__name__)
+
+
+def _sweep_expired_reviews() -> None:
+    """G10b: delete expired review threads at startup (there is no scheduler on Render free). Runs only when a review
+    store is configured, and never blocks startup: an agent-side failure here is logged, and /ask stays up."""
+    if not os.environ.get("REVIEW_DB_PATH", "").strip():
+        return
+    try:
+        from agent.graph import sweep_expired
+
+        sweep_expired()
+    except Exception as exc:  # noqa: BLE001 — startup must not depend on the agent layer's health
+        logger.warning("review: startup sweep skipped: %s", type(exc).__name__)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _sweep_expired_reviews()
     # /mcp requests need the SDK session manager's task group. A sub-app's own lifespan never runs once its
     # routes are added to this app, so it runs here; it can run only once per process.
     async with mcp.session_manager.run():
@@ -148,8 +181,40 @@ def ask_question(req: AskRequest) -> AskResponse:
     return AskResponse(**fields)
 
 
-@app.post("/ask/agent", response_model=AgentAskResponse)
-def ask_question_agent(req: AskRequest) -> AgentAskResponse:
+def _agent_response(fields: dict, result: dict) -> AgentAskResponse:
+    return AgentAskResponse(
+        **fields,
+        route=result.get("route", "direct"),
+        source_doc_id=result.get("source_doc_id") or None,  # "" (direct) -> null in the response
+        routing_reason=result.get("routing_reason"),
+    )
+
+
+def _review_refusal(reason: str, result: dict | None = None) -> AgentAskResponse:
+    result = result or {}
+    return AgentAskResponse(**_refused(guards.REVIEW_REFUSALS[reason]), route=result.get("route") or "none",
+                            source_doc_id=result.get("source_doc_id") or None,
+                            routing_reason=result.get("routing_reason"))
+
+
+def _pending(result: dict) -> JSONResponse:
+    """HTTP 202: the gate paused the question. The evidence is exactly what `generate` will receive."""
+    from agent.graph import _doc_titles
+    from agent.state import chunk_key
+
+    titles = _doc_titles()
+    evidence = [ReviewEvidence(key=chunk_key(c), source_doc_id=c.get("source_doc_id"),
+                               title=titles.get(c.get("source_doc_id")), page=c.get("page"), text=c.get("text", ""))
+                for c in result.get("chunks", [])]
+    body = PendingReviewResponse(status="pending_review", thread_id=result["thread_id"], reason=result["reason"],
+                                 route=result.get("route", "direct"), routing_reason=result.get("routing_reason"),
+                                 evidence=evidence, expires_at=result["expires_at"])
+    return JSONResponse(status_code=202, content=body.model_dump())
+
+
+@app.post("/ask/agent", response_model=AgentAskResponse,
+          responses={202: {"model": PendingReviewResponse, "description": "Paused for review (G10b)."}})
+def ask_question_agent(req: AskRequest):
     """Agentic path: a gpt-4o-mini router source-scopes single-document questions (else routes
     direct), and the response reports the route taken. Cost: the router call is paid on EVERY request
     (incl. the ~85% that route direct) — see the module docstring; not a drop-in replacement for /ask.
@@ -162,9 +227,39 @@ def ask_question_agent(req: AskRequest) -> AgentAskResponse:
     fields, result = _answer(req.question, agent_ask)
     if result is None:
         return AgentAskResponse(**fields, route="none")
-    return AgentAskResponse(
-        **fields,
-        route=result.get("route", "direct"),
-        source_doc_id=result.get("source_doc_id") or None,  # "" (direct) -> null in the response
-        routing_reason=result.get("routing_reason"),
-    )
+    status = result.get("status")
+    if status == "pending_review":
+        return _pending(result)
+    if status == "review_unavailable":  # the gate fired but could not pause: refused, never answered unreviewed
+        return _review_refusal("review_unavailable", result)
+    return _agent_response(fields, result)
+
+
+@app.post("/ask/agent/resume", response_model=AgentAskResponse)
+def resume_review(req: ResumeRequest) -> AgentAskResponse:
+    """Resolve a paused question (G10b). approve -> generate, then the same assembly and output guard as /ask/agent;
+    reject -> a refusal, nothing generated; amend -> the listed evidence keys are removed, then generate. An unknown,
+    lost or expired thread is refused (HTTP 200), never answered. A thread already resolved returns its recorded
+    resolution and never generates twice. There is no authentication: anyone who can reach the service can resolve a
+    review (eval/KNOWN_LIMITATIONS.md, G10b)."""
+    from agent.graph import resume
+
+    result = resume(str(req.thread_id), req.op, list(req.removals))
+    status = result["status"]
+    if status == "invalid":
+        raise HTTPException(status_code=422, detail=result["detail"])
+    if status == "expired_or_lost":
+        return _review_refusal("expired_or_lost")
+    if status == "rejected":
+        return _review_refusal("rejected", result)
+    question = result.get("question")
+    return _agent_response(_assemble(result, question or ""), result)
+
+
+@app.get("/ask/agent/review/{thread_id}", response_model=ReviewStatusResponse)
+def review_status(thread_id: UUID) -> ReviewStatusResponse:
+    """The review's status only (pending, approved, amended, rejected, or expired_or_lost). Never the answer."""
+    from agent.graph import review_status as status_of
+
+    record = status_of(str(thread_id))
+    return ReviewStatusResponse(**{k: v for k, v in record.items() if k in ReviewStatusResponse.model_fields})

@@ -13,6 +13,7 @@ dependencies = [
     "langchain-experimental==0.3.4",
     "langchain-openai==0.3.35",
     "langgraph==1.0.1",
+    "langgraph-checkpoint-sqlite==3.0.3",
     "mcp==1.30.0",
     "openai==2.44.0",
     "pinecone==9.1.0",

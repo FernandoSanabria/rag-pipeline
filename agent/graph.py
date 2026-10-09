@@ -3,7 +3,15 @@ for comparison questions (G12).
 
     START -> router -> (direct) retrieve | (source_scoped) source_scoped_retrieve
                      | (comparison-worded) decompose -> Send x N -> branch_retrieve -> join   [or -> retrieve]
-          -> tool_decide <-> tool_exec (bounded loop) -> generate_node -> END
+          -> tool_decide <-> tool_exec (bounded loop) -> review_gate -> [review_wait] -> generate_node -> END
+
+G10b adds the approval gate immediately before generation (eval/g10b_design.md). `review_gate` applies the trigger
+POLICY (agent/review.py: a question naming an exposure limit, or a source-scoped fallback) — a policy on the question's
+wording, not a measurement of answer quality. When it does not fire, it returns nothing and `generate` receives exactly
+what it received before G10b. When it fires, `review_wait` pauses the graph with LangGraph's dynamic `interrupt()`;
+the thread's checkpoint (a SqliteSaver, one fresh uuid4 thread per ask()) holds the paused evidence until a reviewer
+approves, rejects or amends it through /ask/agent/resume, or the TTL resolves it as rejected. With no checkpointer
+configured, a firing question is refused, never answered unreviewed.
 
 G12 is BUILT, MEASURED and SWITCHED OFF (FANOUT_ENABLED = False): the shipped graph is the pre-G12 one, and the bracketed
 fan-out path above exists only in the enabled build (eval/g12_PREDICTION.md, Outcome). It is a DISPATCH-AND-AGGREGATE
@@ -58,16 +66,20 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Command, Send, interrupt
 from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from agent.state import AgentState, chunk_content_key, fresh_state
+from agent import review
+from agent.state import AgentState, RemoveChunk, chunk_content_key, chunk_key, fresh_state
 from agent.tools import TOOL_SCHEMAS, ToolError, run_tool
 from src.config import get_settings
 from src.generate import generate
@@ -511,13 +523,50 @@ def tool_exec_node(state: AgentState) -> dict:
     }
 
 
+# ---- G10b approval gate (review_gate -> review_wait; eval/g10b_design.md) ------------------------------------------
+def review_gate_node(state: AgentState, config: RunnableConfig) -> dict:
+    """Apply the trigger policy just before generation. No fire -> {} (generate sees exactly what it saw before G10b).
+    Fire with a checkpointer -> a pending review record (review_wait then pauses). Fire without one -> refused."""
+    reason = review.trigger_reason(state["question"], state["trace_notes"])
+    if reason is None:
+        return {}
+    conf = config.get("configurable", {}) if config else {}
+    thread_id = conf.get("thread_id")
+    if not conf.get("review_durable") or not thread_id:
+        return {"review": {"status": review.UNAVAILABLE, "reason": reason},
+                "trace_notes": [f"review: unavailable ({reason}) -> refused, no checkpointer"]}
+    return {"review": review.pending_record(reason, thread_id),
+            "trace_notes": [f"review: paused ({reason}) thread={thread_id}"]}
+
+
+def review_wait_node(state: AgentState) -> dict:
+    """Pause until a reviewer decides. On resume, interrupt() returns {"op": ...}; anything but approve rejects
+    (fail closed). Amend never reaches this body: the resume endpoint applies it with update_state(as_node=...)."""
+    record = state["review"]
+    decision = interrupt({"thread_id": record.get("thread_id"), "reason": record.get("reason")})
+    op = decision.get("op") if isinstance(decision, dict) else None
+    status = review.APPROVED if op == "approve" else review.REJECTED
+    return {"review": {**record, "status": status, "op": op or "reject", "resolved_at": review.iso(review.now_utc())},
+            "trace_notes": [f"review: resumed op={op or 'reject'} removals=0 additions=0"]}
+
+
+def _route_review_gate(state: AgentState) -> str:
+    status = (state.get("review") or {}).get("status")
+    return "review" if status == review.PENDING else "refuse" if status == review.UNAVAILABLE else "generate"
+
+
+def _route_review_wait(state: AgentState) -> str:
+    return "refuse" if state["review"].get("status") == review.REJECTED else "generate"
+
+
 def _compiled_graph():
-    """The graph the service runs: the build selected by FANOUT_ENABLED (off in the shipped app)."""
-    return _build_graph(FANOUT_ENABLED)
+    """The graph the service runs: the build selected by FANOUT_ENABLED (off in the shipped app), compiled with the
+    process's checkpointer (agent/review.py; None when REVIEW_DB_PATH is unset)."""
+    return _build_graph(FANOUT_ENABLED, review.checkpointer())
 
 
-@lru_cache(maxsize=2)
-def _build_graph(fanout: bool):
+@lru_cache(maxsize=8)
+def _build_graph(fanout: bool, checkpointer=None):
     """Build + compile the graph once per variant (stateless; state is per-invoke). With fanout=False the G12 nodes
     and edges are not added at all, so the compiled topology is exactly the pre-G12 one.
     START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve
@@ -537,6 +586,8 @@ def _build_graph(fanout: bool):
         builder.add_node("join", join_node)
     builder.add_node("tool_decide", tool_decide_node)
     builder.add_node("tool_exec", tool_exec_node)
+    builder.add_node("review_gate", review_gate_node)
+    builder.add_node("review_wait", review_wait_node)
     builder.add_node("generate", generate_node)
     builder.add_edge(START, "router")
     if fanout:
@@ -552,10 +603,13 @@ def _build_graph(fanout: bool):
     builder.add_edge("retrieve", "tool_decide")
     builder.add_edge("source_scoped_retrieve", "tool_decide")
     builder.add_conditional_edges("tool_decide", _route_tools,
-                                  {"tool_exec": "tool_exec", "generate": "generate"})
+                                  {"tool_exec": "tool_exec", "generate": "review_gate"})
     builder.add_edge("tool_exec", "tool_decide")
+    builder.add_conditional_edges("review_gate", _route_review_gate,
+                                  {"review": "review_wait", "generate": "generate", "refuse": END})
+    builder.add_conditional_edges("review_wait", _route_review_wait, {"generate": "generate", "refuse": END})
     builder.add_edge("generate", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
 def _routing_reason(route: str, source_doc_id: str, sub_questions: list[dict] | None = None) -> str | None:
@@ -584,17 +638,143 @@ def ask(question: str) -> dict:
     are always present post-invoke (router_node + fresh_state guarantee them); note the source-scoped
     retrieve node may have DOWNGRADED route to "direct" on an execution fallback, so these reflect
     what actually ran, not just the classifier's intent.
+
+    G10b: each call runs on a FRESH uuid4 thread (never a default; invariant (a) with a checkpointer). When the gate
+    pauses, the return adds `status: "pending_review"`, `thread_id`, `reason` and `expires_at`, and `answer` is "";
+    when the gate fires with no checkpointer, `status: "review_unavailable"`. Otherwise the shape is unchanged.
     """
-    state = _compiled_graph().invoke(fresh_state(question))
+    saver = review.checkpointer()
+    graph = _compiled_graph()
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id, "review_durable": saver is not None}}
+    try:
+        state = graph.invoke(fresh_state(question), config, **({"durability": "exit"} if saver is not None else {}))
+    except sqlite3.Error as exc:  # the checkpoint store failed: fail closed, never an unreviewed answer
+        logger.warning("review: checkpointer error thread=%s: %s", thread_id, type(exc).__name__)
+        return {"answer": "", "contexts": [], "chunks": [], "route": "direct", "source_doc_id": "",
+                "routing_reason": None, "status": "review_unavailable", "reason": "checkpointer_error"}
+    result = _result(state)
+    record = state.get("review") or {}
+    if record.get("status") == review.PENDING:
+        logger.info("review: paused (%s) thread=%s", record["reason"], thread_id)
+        return {**result, "status": "pending_review", "thread_id": thread_id, "reason": record["reason"],
+                "expires_at": record["expires_at"]}
+    if saver is not None:  # a finished, unpaused thread is never resumed: drop its checkpoint now
+        try:
+            saver.delete_thread(thread_id)
+        except sqlite3.Error as exc:
+            logger.warning("review: could not delete finished thread=%s: %s", thread_id, type(exc).__name__)
+    if record.get("status") == review.UNAVAILABLE:
+        return {**result, "status": "review_unavailable", "reason": record["reason"]}
+    return result
+
+
+def _result(state: dict) -> dict:
     retrieved = state["retrieved"]
-    contexts = format_contexts(retrieved)
     route = state["route"]
     source_doc_id = state["source_doc_id"]
     return {
         "answer": state["answer"],
-        "contexts": contexts,
+        "contexts": format_contexts(retrieved),
         "chunks": retrieved,
         "route": route,
         "source_doc_id": source_doc_id,
         "routing_reason": _routing_reason(route, source_doc_id, state["sub_questions"]),
     }
+
+
+def _thread_config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id, "review_durable": True}}
+
+
+def _expire(saver, thread_id: str) -> dict:
+    saver.delete_thread(thread_id)
+    logger.info("review: expired thread=%s", thread_id)
+    return {"status": "expired_or_lost", "thread_id": thread_id, "expired": True}
+
+
+def resume(thread_id: str, op: str, removals: list[str] | None = None) -> dict:
+    """Resolve a paused thread: approve, reject or amend (removals only through the API; eval/g10b_design.md R4).
+
+    Returns {"status": "answered" | "rejected" | "expired_or_lost" | "invalid", ...}. A thread already resolved returns
+    its recorded resolution (`recorded: True`) and never generates twice. Unknown, lost or expired -> expired_or_lost."""
+    saver = review.checkpointer()
+    if saver is None:
+        return {"status": "expired_or_lost", "thread_id": thread_id}
+    graph = _compiled_graph()
+    config = _thread_config(thread_id)
+    with review.thread_lock(thread_id):
+        try:
+            snapshot = graph.get_state(config)
+            values = snapshot.values or {}
+            record = values.get("review") or {}
+            if not record:
+                return {"status": "expired_or_lost", "thread_id": thread_id}
+            if review.expired(record):
+                return _expire(saver, thread_id)
+            status = record.get("status")
+            if status in review.RESOLVED:
+                return {**_result(values), "question": values["question"],
+                        "status": "rejected" if status == review.REJECTED else "answered",
+                        "thread_id": thread_id, "recorded": True, "op": record.get("op")}
+            if status != review.PENDING:
+                return {"status": "expired_or_lost", "thread_id": thread_id}
+            if op == "amend":
+                keys = {chunk_key(c) for c in values["retrieved"]}
+                unknown = [k for k in (removals or []) if k not in keys]
+                if not removals or unknown:
+                    return {"status": "invalid", "thread_id": thread_id,
+                            "detail": "amend needs removals, each the key of a paused evidence item"}
+                graph.update_state(config, {
+                    "retrieved": [RemoveChunk(k) for k in removals],
+                    "review": {**record, "status": review.AMENDED, "op": "amend", "removals": list(removals),
+                               "resolved_at": review.iso(review.now_utc())},
+                    "trace_notes": [f"review: resumed op=amend removals={len(removals)} additions=0"],
+                }, as_node="review_wait")
+                state = graph.invoke(None, config, durability="exit")
+            else:
+                state = graph.invoke(Command(resume={"op": op}), config, durability="exit")
+        except sqlite3.Error as exc:  # fail closed
+            logger.warning("review: checkpointer error on resume thread=%s: %s", thread_id, type(exc).__name__)
+            return {"status": "expired_or_lost", "thread_id": thread_id}
+    logger.info("review: resumed op=%s thread=%s", op, thread_id)
+    final = (state.get("review") or {}).get("status")
+    return {**_result(state), "question": state["question"],
+            "status": "rejected" if final == review.REJECTED else "answered",
+            "thread_id": thread_id, "recorded": False, "op": op}
+
+
+def review_status(thread_id: str) -> dict:
+    """A thread's review record, with lazy expiry. Never resumes or generates."""
+    saver = review.checkpointer()
+    if saver is None:
+        return {"thread_id": thread_id, "status": "expired_or_lost"}
+    graph = _compiled_graph()
+    with review.thread_lock(thread_id):
+        try:
+            record = (graph.get_state(_thread_config(thread_id)).values or {}).get("review") or {}
+            if not record:
+                return {"thread_id": thread_id, "status": "expired_or_lost"}
+            if review.expired(record):
+                return {**_expire(saver, thread_id), "status": "expired_or_lost"}
+        except sqlite3.Error:
+            return {"thread_id": thread_id, "status": "expired_or_lost"}
+    return {"thread_id": thread_id, "status": record.get("status"), "reason": record.get("reason"),
+            "expires_at": record.get("expires_at"), "resolved_at": record.get("resolved_at")}
+
+
+def sweep_expired() -> int:
+    """Startup sweep (no scheduler exists on Render free): delete every thread whose review has expired, and any thread
+    with no review record (a finished run whose cleanup was interrupted). Returns the number deleted."""
+    saver = review.checkpointer()
+    if saver is None:
+        return 0
+    graph = _compiled_graph()
+    deleted = 0
+    for thread_id in {c.config["configurable"]["thread_id"] for c in saver.list(None)}:
+        record = (graph.get_state(_thread_config(thread_id)).values or {}).get("review") or {}
+        if not record or review.expired(record):
+            saver.delete_thread(thread_id)
+            deleted += 1
+    logger.info("review: startup sweep deleted %d thread(s)", deleted)
+    return deleted

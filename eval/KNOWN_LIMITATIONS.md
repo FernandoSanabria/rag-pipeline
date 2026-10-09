@@ -341,3 +341,66 @@ runs.
 - `evidence/g9-baseline`;
 - `evidence/g9-characterization`;
 - `evidence/g9b-characterization`.
+
+## G10b approval gate — what it is and is not shown to do
+Recorded 2026-10-09.
+- **Sources:**
+  - the design is [`g10b_design.md`](g10b_design.md);
+  - the pre-registration and its outcome are in [`g10b_PREDICTION.md`](g10b_PREDICTION.md), whose pre-registration
+    commit is tagged `prereg/g10b` at PR time;
+  - the run is in the G10b block of [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
+- **Rows are 1-based.**
+
+**What it is.** `/ask/agent` pauses before generation on a trigger policy (`agent/review.py`), returns HTTP 202 with
+the evidence, and resumes on approve, reject or amend.
+- **Shown, live:**
+  - it fired on exactly frozen rows 9, 10 and 11 (P1);
+  - approve, reject, amend and expired were each 6/6 (P2);
+  - a local uvicorn restart kept the pause and answered on approve (P3a);
+  - non-firing inputs to `generate` were byte-identical in 75/75 runs (P4);
+  - the checkpointer added 2.4 ms at p50 (P5).
+
+**No authentication.** Anyone who can reach the service can approve a paused safety answer, or remove its evidence.
+The follow-on is a reviewer token. It is not built.
+
+**Amend is removals only.**
+- Additions and `Reset()` are implemented and tested at the reducer and graph level (`tests/test_review.py`) but not
+  exposed by the API.
+- **The reason:** unauthenticated injection of citable text. On a public API with no reviewer identity, an "addition"
+  would let anyone put text into an answer's evidence under a real manifest document's `source_doc_id`, and the answer
+  would then cite it.
+
+**The trigger is a policy on the question's wording, not a measurement of answer quality.**
+- It names exposure limits (`exposure limit`, `IDLH`, `PEL`, `REL`, `TLV`, `STEL`), or a source-scoped fallback. It
+  says nothing about whether an answer would be right.
+- **Two named misses:**
+  - "immediately dangerous to life or health" spelled out (guardrail hard negative 25);
+  - "exposure ceiling" (frozen row 21).
+
+  Widening the pattern to catch either would fire on a smoke row or a hard negative.
+- **Tool failures are not a trigger,** because their fire set could not be predicted from local result files.
+- **Scope:** the trigger applies only on `/ask/agent`; `/ask` never pauses.
+- **Consequence on the live service:** every `/ask/agent` question that names an exposure limit returns 202 until
+  someone resolves it.
+
+**Durability is option A: SQLite, failing closed.**
+- **Where a pause survives:** on a host with a persistent filesystem, the pause survives a process restart (P3a).
+- **On Render's free plan,** the filesystem is replaced on every redeploy, restart and idle spin-down, so a pause is
+  lost. Every merge to `main` that changes code redeploys.
+- **Never silently.** The resume then returns the `expired_or_lost` refusal, never an answer. P3b, a live pause across
+  one Render redeploy, is registered for after the merge.
+- **The fix, if the gate must survive deploys:** option B, a Postgres checkpointer. That means a `DATABASE_URL` secret,
+  the `langgraph-checkpoint-postgres==3.0.5` pin, and one network write per `/ask/agent` request.
+
+**Single worker.** Concurrent resumes of one thread are serialized by an in-process lock. That holds for the one
+uvicorn worker the Dockerfile runs. Several workers or instances would need a database-level guard.
+
+**Fail-closed edges:**
+- with no checkpointer configured (`REVIEW_DB_PATH` unset), a triggering question is refused (`review_unavailable`);
+- a SQLite error at the pause refuses the request the same way, even for a question that would not have paused, because
+  the error surfaces at the run's single checkpoint write;
+- the startup sweep deletes expired threads, plus any thread with no review record.
+
+**Tests run with the trigger off by default** (`tests/conftest.py`), so existing tests exercise the non-firing path;
+`tests/test_review.py` switches the real policy on. The G9 smoke and `run_eval.py` run with no checkpointer, where
+non-firing rows are unchanged; row 24, the smoke's `/ask/agent` row, never fires.
