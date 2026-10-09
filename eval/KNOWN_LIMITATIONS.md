@@ -130,9 +130,13 @@ measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
   in-image import step in CI.
 - **`/mcp` has no authentication.** The tools are read-only and a search costs one embedding call — the same
   exposure class as `/ask` — so none was added; recorded as a follow-on.
-- The doc-guard reads 11-digit GitHub Actions run IDs as commit hashes, so docs cite runs by trigger, timestamp
-  and head commit, and run URLs live in PR bodies. Exempting `/actions/runs/<id>` URLs in
-  `scripts/check_doc_citations.py` (with a test) is a candidate improvement, not done here.
+- The doc-guard reads any run of 7 or more lowercase hex digits as a commit hash.
+  - **Actions run IDs:** the 11-digit IDs are caught, so docs cite runs by trigger, timestamp and head commit, and run
+    URLs live in PR bodies.
+  - **UUIDs:** RFC 4122 UUIDs are caught by their 8- and 12-character hex groups, so G10b's review thread ids are
+    written in upper case, which RFC 4122 allows.
+  - **The candidate improvement, not done here:** exempt `/actions/runs/<id>` URLs and RFC 4122 UUIDs in
+    `scripts/check_doc_citations.py`, with a test.
 
 ## G6 guardrails — what they are and are not shown to do
 Recorded 2026-10-04.
@@ -387,10 +391,18 @@ The follow-on is a reviewer token. It is not built.
 - **Where a pause survives:** on a host with a persistent filesystem, the pause survives a process restart (P3a).
 - **On Render's free plan,** the filesystem is replaced on every redeploy, restart and idle spin-down, so a pause is
   lost. Every merge to `main` that changes code redeploys.
-- **Never silently.** The resume then returns the `expired_or_lost` refusal, never an answer. P3b, a live pause across
-  one Render redeploy, is registered for after the merge.
+- **Never silently.** The resume then returns the `expired_or_lost` refusal, never an answer.
+  - **P3b HOLDS, observed live on 2026-10-09:** a pause at 07:25:11Z, a manual redeploy of `ed8a423` (live by
+    07:26:42Z), and a resume at 07:28:49Z that returned `expired_or_lost` with no answer.
+  - Spin-down is excluded (3 min 38 s elapsed). The record is in [`g10b_PREDICTION.md`](g10b_PREDICTION.md).
 - **The fix, if the gate must survive deploys:** option B, a Postgres checkpointer. That means a `DATABASE_URL` secret,
   the `langgraph-checkpoint-postgres==3.0.5` pin, and one network write per `/ask/agent` request.
+
+**The evidence a reviewer reads can be mostly noise** (a limitation of the review experience, not of the gate).
+- On the live pause of row 11 (anhydrous ammonia, OSHA against NIOSH), 3 of the 10 evidence chunks concerned ammonia.
+  The rest were other substances' Pocket Guide entries and appendix text.
+- The gate shows exactly what `generate` would receive, so retrieval's known precision problem lands on the reviewer.
+- Amend (removals) is the tool for it, one key at a time.
 
 **Single worker.** Concurrent resumes of one thread are serialized by an in-process lock. That holds for the one
 uvicorn worker the Dockerfile runs. Several workers or instances would need a database-level guard.

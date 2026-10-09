@@ -201,7 +201,7 @@ Measured live on rows 10 and 11, 3 trials each, every path did what it should: a
 
 **Durability.** A paused review lives in a SQLite checkpoint (`REVIEW_DB_PATH`).
 - **On a host with a persistent filesystem, it survives a process restart.** That is tested in a fresh process, and live with a uvicorn process killed and restarted.
-- **On Render's free plan it does not:** the filesystem is replaced on every redeploy, restart and idle spin-down. The resume then **fails closed** with "expired or lost", never an unreviewed answer.
+- **On Render's free plan it does not:** the filesystem is replaced on every redeploy, restart and idle spin-down. The resume then **fails closed** with "expired or lost", never an unreviewed answer. This was observed live on 2026-10-09: a review paused before a manual redeploy resumed after it as "expired or lost", with no answer.
 - **With no checkpointer configured,** a question that triggers is refused rather than answered.
 
 **No authentication.** Anyone who can reach the service can approve or amend a paused safety answer. A reviewer token is the follow-on. Until then, amend can only **remove** evidence, never add it: [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).

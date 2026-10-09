@@ -230,3 +230,7 @@ RAGAS answer-correctness embedding calls are not counted; they are negligible at
 | **total** | | | | **~$0.15** of the $3.00 budget | d |
 
 The G9 smoke runs on this PR's pushes are not included; their spend is in each run's artifact.
+
+**Closure, 2026-10-09:** P3b and the two positive controls made a few live requests to the deployed service: two
+pauses, one approve, one resume, the status reads and one refused control. That is a few router, tool and generation
+calls, under $0.01 at list price. Negligible and not counted.
