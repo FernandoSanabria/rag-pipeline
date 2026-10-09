@@ -45,7 +45,7 @@ class AgentAskResponse(AskResponse):
     `route` is what actually ran ("direct" | "source_scoped"); on the source-scoped path `source_doc_id`
     and `routing_reason` name the single document the answer was scoped to. Both are null on the direct
     path (incl. an execution fallback that downgraded a source-scoped classification to direct). On "decomposed"
-    (G12: a comparison fanned out to parallel sub-question retrievals) `source_doc_id` is null and `routing_reason`
+    (G12, only when the fan-out is enabled; it ships off) `source_doc_id` is null and `routing_reason`
     lists the sub-questions. If the input guard refuses (it is off in the shipped app; api/main.py), nothing ran:
     `route` is "none" and both are null."""
 

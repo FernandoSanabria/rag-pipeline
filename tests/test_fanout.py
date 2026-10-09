@@ -110,6 +110,8 @@ class _ToolLLM:
 
 @pytest.fixture(autouse=True)
 def _direct_router_and_no_tools(monkeypatch):
+    # The shipped graph has the fan-out switched OFF (agent.graph.FANOUT_ENABLED); these tests exercise the enabled build.
+    monkeypatch.setattr(graph, "FANOUT_ENABLED", True)
     route(monkeypatch)
     tools = _ToolLLM()
     monkeypatch.setattr(graph, "_tool_llm", lambda: tools)
@@ -362,6 +364,25 @@ def test_ask_reports_the_decomposed_route_and_its_sub_questions(monkeypatch):
         "Comparison split into 2 sub-questions: [osha-1910-1000] What is the exposure limit for chlorine under OSHA?; "
         "[niosh-pocket-guide] What is the exposure limit for chlorine under NIOSH?")
     assert out["chunks"] == [OSHA, NIOSH]
+
+
+# --- The enabled build is the measured build ---------------------------------------------------------------------------
+
+# The topology of agent/graph.py at the commit the live G12 run executed (eval/g12_PREDICTION.md, Outcome), recorded
+# from scripts/render_graph.py on that commit. If the enabled build drifts from it, the measurements no longer describe it.
+MEASURED_NODES = {"__start__", "__end__", "router", "retrieve", "source_scoped_retrieve", "decompose", "branch_retrieve",
+                  "join", "tool_decide", "tool_exec", "generate"}
+MEASURED_EDGES = {("__start__", "router"), ("branch_retrieve", "join"), ("decompose", "branch_retrieve"),
+                  ("decompose", "retrieve"), ("generate", "__end__"), ("join", "tool_decide"), ("retrieve", "tool_decide"),
+                  ("router", "decompose"), ("router", "retrieve"), ("router", "source_scoped_retrieve"),
+                  ("source_scoped_retrieve", "tool_decide"), ("tool_decide", "generate"), ("tool_decide", "tool_exec"),
+                  ("tool_exec", "tool_decide")}
+
+
+def test_enabled_graph_topology_matches_the_measured_build():
+    g = graph._build_graph(fanout=True).get_graph()
+    assert set(g.nodes) == MEASURED_NODES
+    assert {(e.source, e.target) for e in g.edges} == MEASURED_EDGES
 
 
 # --- 12. The frozen decomposer prompt, schema and gate ----------------------------------------------------------------

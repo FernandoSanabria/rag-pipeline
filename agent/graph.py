@@ -5,7 +5,9 @@ for comparison questions (G12).
                      | (comparison-worded) decompose -> Send x N -> branch_retrieve -> join   [or -> retrieve]
           -> tool_decide <-> tool_exec (bounded loop) -> generate_node -> END
 
-G12 is a DISPATCH-AND-AGGREGATE node, not a hierarchy of agents: a deterministic wording gate sends comparison-worded
+G12 is BUILT, MEASURED and SWITCHED OFF (FANOUT_ENABLED = False): the shipped graph is the pre-G12 one, and the bracketed
+fan-out path above exists only in the enabled build (eval/g12_PREDICTION.md, Outcome). It is a DISPATCH-AND-AGGREGATE
+node, not a hierarchy of agents: a deterministic wording gate sends comparison-worded
 direct questions to one decomposer call; 2-3 sub-questions are dispatched concurrently with LangGraph's `Send`, each
 branch runs ONE retrieval (source-scoped when the sub-question names a document), and `join_node` rank-interleaves
 the surviving branches, dedups by `chunk_content_key`, and writes `retrieved` once. Anything the gate or decomposer
@@ -152,11 +154,7 @@ def router_node(state: AgentState) -> dict:
 
 
 def _route(state: AgentState) -> str:
-    if state["route"] == "source_scoped":
-        return "source_scoped"
-    if COMPARISON_GATE.search(state["question"]):  # G12 stage 1: deterministic wording gate (direct route only)
-        return "decompose"
-    return "direct"
+    return "source_scoped" if state["route"] == "source_scoped" else "direct"
 
 
 # ---- G12 parallel fan-out: dispatch-and-aggregate (eval/g12_design.md) --------------------------------------------
@@ -168,6 +166,20 @@ COMPARISON_GATE = re.compile(
     re.IGNORECASE,
 )
 MAX_BRANCHES = 3
+
+# G12 ships SWITCHED OFF. The fan-out is built and measured, but on the four comparison rows it was slower (+1.98 s
+# p50) and two answers got worse (row 9's correctness, and an unregistered drop on row 21): eval/g12_PREDICTION.md,
+# Outcome. With the flag off, `_build_graph` leaves the decompose/branch/join nodes OUT of the compiled graph, so the
+# shipped graph has the pre-G12 topology exactly; turning it on needs a new pre-registration.
+FANOUT_ENABLED = False
+
+
+def _route_fanout(state: AgentState) -> str:
+    """The router edge of the ENABLED build only: G12 stage 1, the deterministic wording gate, on the direct route."""
+    route = _route(state)
+    if route == "direct" and COMPARISON_GATE.search(state["question"]):
+        return "decompose"
+    return route
 
 
 class SubQuestion(BaseModel):
@@ -499,9 +511,15 @@ def tool_exec_node(state: AgentState) -> dict:
     }
 
 
-@lru_cache(maxsize=1)
 def _compiled_graph():
-    """Build + compile the graph once (stateless; state is per-invoke).
+    """The graph the service runs: the build selected by FANOUT_ENABLED (off in the shipped app)."""
+    return _build_graph(FANOUT_ENABLED)
+
+
+@lru_cache(maxsize=2)
+def _build_graph(fanout: bool):
+    """Build + compile the graph once per variant (stateless; state is per-invoke). With fanout=False the G12 nodes
+    and edges are not added at all, so the compiled topology is exactly the pre-G12 one.
     START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve
                    | (comparison-worded, G12) decompose → Send × N → branch_retrieve → join [or → retrieve]
           → tool_decide ⇄ tool_exec (G1 loop) → generate → END.
@@ -513,19 +531,24 @@ def _compiled_graph():
     builder.add_node("router", router_node)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("source_scoped_retrieve", source_scoped_retrieve_node)
-    builder.add_node("decompose", decompose_node)
-    builder.add_node("branch_retrieve", branch_retrieve_node)
-    builder.add_node("join", join_node)
+    if fanout:
+        builder.add_node("decompose", decompose_node)
+        builder.add_node("branch_retrieve", branch_retrieve_node)
+        builder.add_node("join", join_node)
     builder.add_node("tool_decide", tool_decide_node)
     builder.add_node("tool_exec", tool_exec_node)
     builder.add_node("generate", generate_node)
     builder.add_edge(START, "router")
-    builder.add_conditional_edges("router", _route,
-                                  {"source_scoped": "source_scoped_retrieve", "direct": "retrieve",
-                                   "decompose": "decompose"})
-    builder.add_conditional_edges("decompose", _dispatch, ["branch_retrieve", "retrieve"])
-    builder.add_edge("branch_retrieve", "join")
-    builder.add_edge("join", "tool_decide")
+    if fanout:
+        builder.add_conditional_edges("router", _route_fanout,
+                                      {"source_scoped": "source_scoped_retrieve", "direct": "retrieve",
+                                       "decompose": "decompose"})
+        builder.add_conditional_edges("decompose", _dispatch, ["branch_retrieve", "retrieve"])
+        builder.add_edge("branch_retrieve", "join")
+        builder.add_edge("join", "tool_decide")
+    else:
+        builder.add_conditional_edges("router", _route,
+                                      {"source_scoped": "source_scoped_retrieve", "direct": "retrieve"})
     builder.add_edge("retrieve", "tool_decide")
     builder.add_edge("source_scoped_retrieve", "tool_decide")
     builder.add_conditional_edges("tool_decide", _route_tools,

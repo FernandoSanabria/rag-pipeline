@@ -1,7 +1,7 @@
 """G12 fan-out eval: runs the pre-registered P1–P6 of eval/g12_PREDICTION.md against the live backends.
 
 Two arms in one process:
-- fan-out: `agent.graph`, the G12 graph;
+- fan-out: `agent.graph` with FANOUT_ENABLED set (the shipped default is off), the G12 enabled build;
 - current: `agent/graph.py` as it stands at the branch point (`git merge-base HEAD origin/main`), loaded as the module
   `agent.graph_baseline`. Both use the same `src/` and `agent.state.fresh_state`.
 
@@ -186,6 +186,7 @@ class Run:
         from src.retrieve import format_contexts
 
         self.new, self.cur = new, cur
+        new.FANOUT_ENABLED = True  # the shipped graph has the fan-out off; this arm measures the enabled build
         self.format_contexts, self.is_refusal, self.check_output = format_contexts, is_refusal, check_output
         self.decomposer_fp = fingerprint_handler()
         real = new._decomposer_llm()
@@ -280,7 +281,7 @@ class Run:
             return out
 
         new.decompose_node = injecting
-        new._compiled_graph.cache_clear()
+        new._build_graph.cache_clear()  # rebuild so the builder picks up the wrapped decompose_node
         records = []
         try:
             for t in range(1, TRIALS + 1):
@@ -311,7 +312,7 @@ class Run:
                           f"refusal={rec.get('whole_refusal')} named={rec.get('failure_named')}", flush=True)
         finally:
             new.decompose_node = real_decompose
-            new._compiled_graph.cache_clear()
+            new._build_graph.cache_clear()
         self.parts["P4"] = records
 
     def p5(self, rows):
