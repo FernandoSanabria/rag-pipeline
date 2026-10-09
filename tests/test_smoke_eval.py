@@ -389,6 +389,10 @@ def test_workflow_jobs_skip_neutrally_and_cache_merges():
     assert restore["with"]["key"] == save["with"]["key"] == "smoke-judge-${{ github.run_id }}-${{ github.run_attempt }}"
     assert save["if"] == "always()" and restore["with"]["path"] == save["with"]["path"] == ".smoke-cache"
     assert any("scripts/smoke_eval.py" in s.get("run", "") for s in steps.values())
+    upload = next(s for s in job["steps"] if s.get("uses") == "actions/upload-artifact@v4")
+    # .smoke-out/ is a hidden path; without this, v4 uploads nothing (the first baseline run lost its snapshot this way)
+    assert upload["with"]["path"] == ".smoke-out/" and upload["with"]["include-hidden-files"] is True
+    assert upload["if"] == "always()"
 
 
 def test_secrets_appear_only_in_this_workflow_and_ci_yml_is_hermetic():

@@ -121,5 +121,6 @@ jobs:
         with:
           name: eval-smoke-${{ github.run_number }}-${{ github.run_attempt }}
           path: .smoke-out/
+          include-hidden-files: true   # upload-artifact v4 skips hidden paths by default, and .smoke-out/ is one
           if-no-files-found: warn
           retention-days: 90
