@@ -400,3 +400,22 @@ def test_secrets_appear_only_in_this_workflow_and_ci_yml_is_hermetic():
     assert set(re.findall(r"secrets\.([A-Z_]+)", text)) == {"OPENAI_API_KEY", "PINECONE_API_KEY"}
     assert "secrets." not in CI.read_text()
     assert "pull_request_target" not in text  # fork PRs must never receive the keys
+
+
+# --- the committed snapshot -------------------------------------------------------------------------------------------
+
+
+def test_the_committed_snapshot_covers_the_smoke_set_with_derived_values_only():
+    text = smoke.SNAPSHOT_PATH.read_text()
+    snap = json.loads(text)
+    rows = smoke.load_smoke_set()
+    assert set(snap["rows"]) == {str(r["row"]) for r in rows}
+    assert snap["delta_f"] == smoke.DELTA_F and snap["justified_by"].startswith("eval/METRICS_HISTORY.md, G9 block")
+    assert snap["run"]["event"] == "workflow_dispatch" and snap["run"]["retrieval_k"] == 10
+    assert snap["run"]["retrieval_namespace"] == "semantic_v2" and snap["run"]["index_name"] == "equip-docs-rag"
+    for n, row in snap["rows"].items():
+        assert isinstance(row["faithfulness"], float) and row["pages"], n  # a baseline with a NOT SCORED row exits 2
+        assert re.fullmatch(r"[0-9a-f]{64}", row["answer_sha256"])
+    assert snap["rows"]["25"]["is_refusal"] is True and snap["rows"]["24"]["route"] == "source_scoped"
+    for r in rows:  # derived values only: the repository is public
+        assert r["question"] not in text and r["reference"][:60] not in text

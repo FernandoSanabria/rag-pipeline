@@ -1,0 +1,882 @@
+{
+  "schema": 1,
+  "justified_by": "eval/METRICS_HISTORY.md, G9 block: the baseline (eval-smoke run #3)",
+  "delta_f": 0.2,
+  "run": {
+    "run_id": "37886815865",
+    "run_number": "3",
+    "run_attempt": "1",
+    "event": "workflow_dispatch",
+    "ref": "refs/heads/feat/g9-evals-in-ci",
+    "commit": "1db5e6e36d629f02d08332fa73f403da7fc7d37a",
+    "date_utc": "2026-10-09T05:05:11Z",
+    "ragas_version": "0.4.3",
+    "judge_model": "gpt-4o-mini",
+    "embedding_model": "text-embedding-3-small",
+    "index_name": "equip-docs-rag",
+    "retrieval_namespace": "semantic_v2",
+    "retrieval_k": 10,
+    "generation_backends": [
+      {
+        "model_name": "gpt-4o-mini-2024-07-18",
+        "system_fingerprint": "fp_2fb502e36f",
+        "n_calls": 8
+      }
+    ],
+    "judge_fingerprints": {
+      "gpt-4o-mini-2024-07-18|fp_8f7cd315de": 6,
+      "gpt-4o-mini-2024-07-18|fp_0c32a49902": 2,
+      "gpt-4o-mini-2024-07-18|fp_91ad5947c4": 2
+    }
+  },
+  "rows": {
+    "1": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "epa-rmp-ammonia-refrigeration",
+          1
+        ],
+        [
+          "epa-rmp-ammonia-refrigeration",
+          4
+        ],
+        [
+          "epa-rmp-ammonia-refrigeration",
+          7
+        ],
+        [
+          "epa-rmp-ammonia-refrigeration",
+          13
+        ],
+        [
+          "niosh-pocket-guide",
+          45
+        ],
+        [
+          "niosh-pocket-guide",
+          141
+        ],
+        [
+          "niosh-pocket-guide",
+          230
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          1
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          6
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          13
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "epa-rmp-ammonia-refrigeration",
+          "page": 1,
+          "score": 0.580508
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 1,
+          "score": 0.556743
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 45,
+          "score": 0.554992
+        },
+        {
+          "source_doc_id": "epa-rmp-ammonia-refrigeration",
+          "page": 4,
+          "score": 0.5403
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 141,
+          "score": 0.538374
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 6,
+          "score": 0.53297
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 230,
+          "score": 0.529784
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 13,
+          "score": 0.522656
+        },
+        {
+          "source_doc_id": "epa-rmp-ammonia-refrigeration",
+          "page": 13,
+          "score": 0.520175
+        },
+        {
+          "source_doc_id": "epa-rmp-ammonia-refrigeration",
+          "page": 7,
+          "score": 0.512159
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 349,
+          "score": 0.494035
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.6823,
+      "answer_sha256": "09123ae2cc87d80272dd44c93678b6d28b260f8a6c4d6d55bcb7e2ad3f847afc",
+      "contexts_sha256": "64419827e034660f284871edf1e501f96660f6dd672db354d7f52df677668566"
+    },
+    "4": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "fisher-657-actuator",
+          1
+        ],
+        [
+          "fisher-657-actuator",
+          2
+        ],
+        [
+          "fisher-657-actuator",
+          11
+        ],
+        [
+          "fisher-657-actuator",
+          20
+        ],
+        [
+          "fisher-667-actuator",
+          1
+        ],
+        [
+          "fisher-667-actuator",
+          2
+        ],
+        [
+          "fisher-667-actuator",
+          14
+        ],
+        [
+          "fisher-667-actuator",
+          17
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "fisher-667-actuator",
+          "page": 2,
+          "score": 0.756526
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 2,
+          "score": 0.703038
+        },
+        {
+          "source_doc_id": "fisher-667-actuator",
+          "page": 1,
+          "score": 0.698318
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 1,
+          "score": 0.690321
+        },
+        {
+          "source_doc_id": "fisher-667-actuator",
+          "page": 1,
+          "score": 0.654418
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 1,
+          "score": 0.630155
+        },
+        {
+          "source_doc_id": "fisher-667-actuator",
+          "page": 14,
+          "score": 0.57818
+        },
+        {
+          "source_doc_id": "fisher-667-actuator",
+          "page": 17,
+          "score": 0.578172
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 11,
+          "score": 0.568443
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 20,
+          "score": 0.565066
+        },
+        {
+          "source_doc_id": "fisher-657-actuator",
+          "page": 10,
+          "score": 0.562883
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.7853,
+      "answer_sha256": "eeeb9a19ce020c233d309211a707e2184265cec7cbc35b1037b799cfb7b6d52c",
+      "contexts_sha256": "36dac13f310efcc5f96708ab2f979be6e48d31d43f07a29cfc66fcd7276a7a25"
+    },
+    "15": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "controls-hazardous-energies",
+          3
+        ],
+        [
+          "controls-hazardous-energies",
+          21
+        ],
+        [
+          "osha-1910-147",
+          1
+        ],
+        [
+          "osha-1910-147",
+          3
+        ],
+        [
+          "osha-1910-147",
+          4
+        ],
+        [
+          "osha-1910-147",
+          6
+        ],
+        [
+          "osha-1910-147",
+          8
+        ],
+        [
+          "osha-1910-147",
+          9
+        ],
+        [
+          "osha-1910-147",
+          11
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 8,
+          "score": 0.720747
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 9,
+          "score": 0.716338
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 11,
+          "score": 0.696597
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 3,
+          "score": 0.687503
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 6,
+          "score": 0.683234
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 1,
+          "score": 0.669948
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 3,
+          "score": 0.635582
+        },
+        {
+          "source_doc_id": "osha-1910-147",
+          "page": 4,
+          "score": 0.634586
+        },
+        {
+          "source_doc_id": "controls-hazardous-energies",
+          "page": 21,
+          "score": 0.604454
+        },
+        {
+          "source_doc_id": "controls-hazardous-energies",
+          "page": 3,
+          "score": 0.604342
+        },
+        {
+          "source_doc_id": "controls-hazardous-energies",
+          "page": 19,
+          "score": 0.598061
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.4947,
+      "answer_sha256": "d0ad980285dfece76b934d928c56046b10bb473bd28c316e7666584ed83deee2",
+      "contexts_sha256": "dbb65c7b806f58c44efb6cdd620b10636f84c4c639bf2812b245e561b182a9b9"
+    },
+    "20": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "niosh-pocket-guide",
+          10
+        ],
+        [
+          "niosh-pocket-guide",
+          89
+        ],
+        [
+          "sds-airgas-chlorine",
+          1
+        ],
+        [
+          "sds-airgas-chlorine",
+          4
+        ],
+        [
+          "sds-airgas-chlorine",
+          8
+        ],
+        [
+          "sds-airgas-chlorine",
+          11
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          13
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          15
+        ],
+        [
+          "sds-sigma-aldrich-acetone",
+          14
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 8,
+          "score": 0.674918
+        },
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 11,
+          "score": 0.611085
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 13,
+          "score": 0.580389
+        },
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 1,
+          "score": 0.579391
+        },
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 1,
+          "score": 0.575826
+        },
+        {
+          "source_doc_id": "sds-sigma-aldrich-acetone",
+          "page": 14,
+          "score": 0.570495
+        },
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 4,
+          "score": 0.564582
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 15,
+          "score": 0.541527
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 89,
+          "score": 0.53254
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 10,
+          "score": 0.52893
+        },
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 5,
+          "score": 0.51434
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.3516,
+      "answer_sha256": "aea2a9051022fe43e55f66af72735940f154c6b8b365118f3d85fe1817b03715",
+      "contexts_sha256": "aad3bd2caa5159830a8de39d9fc578c16859ff6daa53310282adf66f76d6bb76"
+    },
+    "21": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "niosh-pocket-guide",
+          89
+        ],
+        [
+          "osha-1910-1000",
+          5
+        ],
+        [
+          "osha-1910-1000",
+          17
+        ],
+        [
+          "osha-1910-1000",
+          21
+        ],
+        [
+          "osha-1910-1000",
+          36
+        ],
+        [
+          "osha-1910-1000",
+          41
+        ],
+        [
+          "osha-1910-1000",
+          43
+        ],
+        [
+          "osha-1910-1000",
+          52
+        ],
+        [
+          "osha-1910-1000",
+          66
+        ],
+        [
+          "sds-airgas-chlorine",
+          4
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "sds-airgas-chlorine",
+          "page": 4,
+          "score": 0.613673
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 52,
+          "score": 0.597724
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 36,
+          "score": 0.595657
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 5,
+          "score": 0.590744
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 17,
+          "score": 0.586935
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 89,
+          "score": 0.586025
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 41,
+          "score": 0.58551
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 43,
+          "score": 0.582912
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 21,
+          "score": 0.580797
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 66,
+          "score": 0.579032
+        },
+        {
+          "source_doc_id": "osha-1910-1000",
+          "page": 16,
+          "score": 0.578475
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.9564,
+      "answer_sha256": "a0eb25aa279602a946506ec61862a465ccd4e82f1ba8f382a54e2b1f4a5fa9ad",
+      "contexts_sha256": "b08ffd122ae51866f0d9a78cc35d07671448d843e8a148ae0d5502b1d7eda65e"
+    },
+    "25": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "niosh-pocket-guide",
+          33
+        ],
+        [
+          "niosh-pocket-guide",
+          34
+        ],
+        [
+          "niosh-pocket-guide",
+          47
+        ],
+        [
+          "niosh-pocket-guide",
+          66
+        ],
+        [
+          "niosh-pocket-guide",
+          67
+        ],
+        [
+          "niosh-pocket-guide",
+          120
+        ],
+        [
+          "niosh-pocket-guide",
+          195
+        ],
+        [
+          "niosh-pocket-guide",
+          210
+        ],
+        [
+          "niosh-pocket-guide",
+          275
+        ],
+        [
+          "sds-sigma-aldrich-acetone",
+          1
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "sds-sigma-aldrich-acetone",
+          "page": 1,
+          "score": 0.610531
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 33,
+          "score": 0.577401
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 275,
+          "score": 0.539225
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 120,
+          "score": 0.537371
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 210,
+          "score": 0.529569
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 195,
+          "score": 0.517625
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 47,
+          "score": 0.514415
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 66,
+          "score": 0.509713
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 34,
+          "score": 0.509509
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 67,
+          "score": 0.508603
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 141,
+          "score": 0.507677
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": true,
+      "faithfulness": 0.0,
+      "answer_correctness": 0.0362,
+      "answer_sha256": "36d859f23084b3d34e5789c0fd79fa556d2a38db612a5e72eb35440934a8406a",
+      "contexts_sha256": "aa7922c4e0aa7b67649ae19c7423a7ac75f18f956584f7aa7aaca100e6051b0f"
+    },
+    "26": {
+      "endpoint": "/ask",
+      "route": null,
+      "pages": [
+        [
+          "controls-hazardous-energies",
+          3
+        ],
+        [
+          "controls-hazardous-energies",
+          5
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          1
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          5
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          7
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          8
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          13
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          14
+        ],
+        [
+          "niosh-alert-hazardous-energy",
+          15
+        ],
+        [
+          "niosh-pocket-guide",
+          370
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 5,
+          "score": 0.642776
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 7,
+          "score": 0.614866
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 1,
+          "score": 0.588965
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 8,
+          "score": 0.560218
+        },
+        {
+          "source_doc_id": "controls-hazardous-energies",
+          "page": 5,
+          "score": 0.513673
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 13,
+          "score": 0.512832
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 14,
+          "score": 0.504411
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 15,
+          "score": 0.491598
+        },
+        {
+          "source_doc_id": "controls-hazardous-energies",
+          "page": 3,
+          "score": 0.48548
+        },
+        {
+          "source_doc_id": "niosh-pocket-guide",
+          "page": 370,
+          "score": 0.477898
+        },
+        {
+          "source_doc_id": "niosh-alert-hazardous-energy",
+          "page": 15,
+          "score": 0.474832
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.4733,
+      "answer_sha256": "f93058c366c04a1dde70c75d5527b63bd9b6ba0680db9cfc38f37fde49a13d57",
+      "contexts_sha256": "7f6b2c8e9dccdc673b3ba20963b22c28fd549604c385745306170a4fe8466fd3"
+    },
+    "24": {
+      "endpoint": "/ask/agent",
+      "route": "source_scoped",
+      "pages": [
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          1
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          3
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          5
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          6
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          8
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          12
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          13
+        ],
+        [
+          "sds-nutrien-anhydrous-ammonia",
+          15
+        ]
+      ],
+      "top11": [
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 1,
+          "score": 0.603648
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 6,
+          "score": 0.588417
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 1,
+          "score": 0.577659
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 8,
+          "score": 0.511942
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 15,
+          "score": 0.500177
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 5,
+          "score": 0.488082
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 12,
+          "score": 0.480256
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 13,
+          "score": 0.472413
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 3,
+          "score": 0.471843
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 12,
+          "score": 0.448486
+        },
+        {
+          "source_doc_id": "sds-nutrien-anhydrous-ammonia",
+          "page": 2,
+          "score": 0.440694
+        }
+      ],
+      "tool_chunks": 0,
+      "is_refusal": false,
+      "faithfulness": 1.0,
+      "answer_correctness": 0.911,
+      "answer_sha256": "4f51ce1e8299d7ec24e4cf751d706229c906a5c7a9819c72e50aafc5fca99ca7",
+      "contexts_sha256": "f86ab0b45b765e5696edfe4863add52c07d0edc38e98c4bc850228f05f9e6ca2"
+    }
+  }
+}
