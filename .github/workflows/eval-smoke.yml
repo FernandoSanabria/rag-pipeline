@@ -1,0 +1,136 @@
+name: eval-smoke
+run-name: ${{ inputs.simulate_regression && 'eval-smoke — SIMULATED REGRESSION (intentional red, negative proof)' || inputs.baseline && 'eval-smoke — BASELINE (writes a snapshot artifact)' || inputs.rows && format('eval-smoke — DIAGNOSTIC rows={0}', inputs.rows) || format('eval-smoke — {0}', github.event_name) }}
+
+# G9b: an 8-row smoke evaluation on every PR (eval/g9_design.md, eval/g9_PREDICTION.md; runner: scripts/smoke_eval.py).
+# Hard tier: T1 only, the retrieval page set per row plus the refusal identity on the refusal row. T2 (faithfulness more
+# than 0.2 below the committed eval/smoke_snapshot.json) and T3 (answer correctness) are reported, never red: G9 gated
+# T2 hard and was falsified (2 of 5 characterization runs red on generation variance), which demoted it.
+#
+# This is NOT ci.yml. ci.yml stays hermetic (no secrets, no network) and untouched. This workflow reads two repository
+# secrets, OPENAI_API_KEY and PINECONE_API_KEY. When they are absent (a fork PR), or no gated path changed, or no snapshot
+# exists yet, the `gate` job says why and `smoke` shows Skipped: neutral, never red, never a silent green.
+# The paths filter lives in the gate job, not in `on.paths`: a required check behind `on.paths` never reports on a PR
+# that doesn't match, and blocks it.
+#
+# The repository is public: the log, the step summary and the artifact carry derived values only (page sets, scores,
+# hashes). A breach row's answer text (T1 failure or T2 floor breach) is written only as OpenPGP ciphertext to the key at
+# eval/smoke_pubkey.asc, whose private half is held off-repo by the maintainer; without gpg, nothing is written.
+# Secrets surface: same-repo PR runs receive the keys, so anyone with write access could read them by editing
+# this workflow in a PR. That is the accepted trade-off for a single-owner repo. Fork PRs never receive them.
+#
+# NEGATIVE PROOF: a `workflow_dispatch` run with `simulate_regression: true` is red by design. Row 1 retrieves at k=2
+# and must go red on T1; row 4's answer is replaced by a canned unfaithful sentence before judging, and T2's reported
+# line on it is recorded. That red entry in the Actions history is evidence for the gate, not a broken pipeline. Its run
+# is named "SIMULATED REGRESSION" and its ::error:: lines are prefixed "SIMULATED —".
+# DIAGNOSTIC: `rows` (e.g. "24") gates a subset of the 8. Those runs are outside the demotion window.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      simulate_regression:
+        description: "Dispatch-only NEGATIVE PROOF: row 1 at k=2 (T1) and an unfaithful row-4 answer (T2). Intentionally red."
+        type: boolean
+        default: false
+      baseline:
+        description: "Write a new snapshot as an artifact instead of gating. Commit it deliberately, naming its ledger row."
+        type: boolean
+        default: false
+      rows:
+        description: "DIAGNOSTIC: gate only these smoke rows, comma-separated (e.g. 24). Leave empty for the full 8."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-smoke-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the gate diffs base...head
+
+      - name: Decide (secrets present by name only, gated paths, snapshot)
+        id: gate
+        env:
+          HAS_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.PINECONE_API_KEY != '' }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASELINE: ${{ inputs.baseline && 'true' || 'false' }}
+        run: python3 scripts/smoke_eval.py gate --event "$EVENT" --base "$BASE" --head "$HEAD" --baseline "$BASELINE" --has-secrets "$HAS_SECRETS"
+
+  smoke:
+    name: smoke
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      INDEX_NAME: equip-docs-rag      # as committed in render.yaml
+      LANGCHAIN_TRACING_V2: "false"
+      RAGAS_DO_NOT_TRACK: "true"
+      SIMULATE: ${{ inputs.simulate_regression && 'true' || 'false' }}
+      BASELINE: ${{ inputs.baseline && 'true' || 'false' }}
+      ROWS: ${{ inputs.rows || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.25"
+          enable-cache: true
+
+      - name: Install dependencies (no dev group)
+        run: uv sync --frozen --no-dev
+
+      # Refinement A: restore the newest judge cache, merge this run's entries into it, save the union under a new key.
+      - name: Restore the judge cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .smoke-cache
+          key: smoke-judge-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: smoke-judge-
+
+      - name: Smoke evaluation (8 rows; exit 1 = T1 red, 2 = cap or configuration)
+        run: |
+          args=()
+          if [ "$BASELINE" = "true" ]; then args+=(--baseline); fi
+          if [ "$SIMULATE" = "true" ]; then args+=(--simulate-regression); fi
+          if [ -n "$ROWS" ]; then args+=(--rows "$ROWS"); fi
+          uv run --no-sync python scripts/smoke_eval.py "${args[@]}"
+
+      # always(): a red run's scores are content-keyed and harmless; the canned answer's key never matches a real row.
+      - name: Save the judge cache (merged)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .smoke-cache
+          key: smoke-judge-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload the report (derived values, plus breach ciphertext)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-${{ github.run_number }}-${{ github.run_attempt }}
+          path: .smoke-out/
+          include-hidden-files: true   # upload-artifact v4 skips hidden paths by default, and .smoke-out/ is one
+          if-no-files-found: warn
+          retention-days: 90

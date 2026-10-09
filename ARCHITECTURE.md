@@ -59,7 +59,7 @@ phase0/
 ├── data/       # corpus PDFs (gitignored) + committed manifest.json (provenance)
 ├── tests/      # hermetic pytest suite (no secrets, no network)
 ├── blog/       # five cross-linked write-ups + CONVENTIONS.md
-├── .github/    # CI + keepalive + post-deploy wire-smoke workflows
+├── .github/    # CI + eval-smoke + keepalive + post-deploy wire-smoke workflows
 └── main.py     # a stub — NOT the app entry point
 ```
 
@@ -86,7 +86,9 @@ phase0/
 - **[`eval/`](eval/run_eval.py)** — `run_eval.py` (the harness), `dataset.jsonl` (28 frozen rows),
   `capability_set.jsonl` (the tool-capability set — rows/provenance in that file; not comparable to the
   frozen 28), `results/` (gitignored per-run JSON), and
-  the markdown ledger + design/result docs listed in §2.
+  the markdown ledger + design/result docs listed in §2. The G9 smoke suite lives here too: `smoke_set.json` (the 8
+  rows), `smoke_snapshot.json` (what CI compares against) and `smoke_pubkey.asc` (the breach-encryption public key),
+  run by `scripts/smoke_eval.py` (§5).
 - **Entry point.** The deployed app is `api.main:app` (run by `uvicorn`). The `main.py` at the repo
   root is a leftover stub — do **not** treat it as the entry point.
 
@@ -162,6 +164,14 @@ scores it with RAGAS, writing a timestamped JSON into `eval/results/` (gitignore
   mismatched-fingerprint comparison is *not* a confirmed result. Treat a single answer-correctness
   move under **~±0.03** as noise, not signal — and settle close calls by **reading the per-row
   artifact**, not the aggregate.
+- **The CI smoke (G9/G9b).** [`scripts/smoke_eval.py`](scripts/smoke_eval.py) runs 8 of the 28 rows through the
+  served path (`api.main._answer`) on every PR that touches the gated paths
+  ([`eval-smoke.yml`](.github/workflows/eval-smoke.yml)). It fails only on retrieval: a row's
+  `(source_doc_id, page)` set differs from `eval/smoke_snapshot.json`, or the refusal row stops refusing.
+  Faithfulness and answer correctness are reported against the snapshot, behind a content-keyed judge cache. Gating
+  faithfulness was pre-registered and falsified (G9), because generation varied on identical input. A breaching row's
+  answer is attached only as OpenPGP ciphertext. It complements the harness and does not replace it: the full 28 stay
+  a manual run.
 - **The promotion gate.** A change ships only if it clears a **pre-registered, asymmetric** bar (no
   metric regresses beyond the noise floor; improvements are unbounded), judged on a fingerprint-
   matched like-for-like. The re-chunk (2B) was promoted this way; the write-up is
@@ -243,12 +253,16 @@ this section explains the *why* and points there.
 - **CI guards** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). On push/PR to `main`:
   `scripts/check_doc_citations.py` fails the build on (a) any cited commit hash that doesn't resolve
   and (b) any **dead relative markdown link** in a tracked doc; then a hermetic `pytest` run (no
-  secrets, no network); then a `docker build` (no push) to catch a broken Dockerfile. Two companion
-  workflows: a keepalive ping (fights free-tier spin-down) and a post-deploy wire-smoke (polls the
-  live service after a deploy). **Note:** once this file is committed, its own relative links enter
-  the doc-guard's scope — keep them few and correct. Cited hashes must be reachable from `main` or from
-  a `prereg/*` tag: PRs are squash-merged, so each pre-registration commit gets an annotated
-  `prereg/<gate>` tag (e.g. `prereg/g1-closure`) that keeps it resolvable once its branch is gone.
+  secrets, no network); then a `docker build` (no push) to catch a broken Dockerfile. A second gated
+  workflow, [`eval-smoke.yml`](.github/workflows/eval-smoke.yml) (§5), holds the repository's only secrets
+  (`OPENAI_API_KEY`, `PINECONE_API_KEY`). It is a separate file, so `ci.yml` stays hermetic, and without the secrets
+  (fork PRs) its `smoke` job is skipped, never red. Two companion workflows: a keepalive ping (fights free-tier
+  spin-down) and a post-deploy wire-smoke (polls the live service after a deploy). **Note:** once this file is committed, its own relative links enter
+  the doc-guard's scope — keep them few and correct. Cited hashes must be reachable from main or from a
+  prereg/* or evidence/* tag. `prereg/*` marks a pre-registration commit; `evidence/*` marks a measured build or
+  baseline the ledger cites. Both use the same annotated-tag format with the PR number in the message (e.g.
+  `prereg/g1-closure`, `evidence/g9-baseline`). PRs are squash-merged, so the tags keep those commits resolvable
+  once their branch is gone.
 
 ## 8. Quick start
 

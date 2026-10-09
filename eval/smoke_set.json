@@ -1,0 +1,61 @@
+{
+  "_doc": "G9 smoke set: 8 rows of eval/dataset.jsonl, 1-based, chosen from data in eval/g9_design.md (R1). question_sha256 pins each row's text, so a renumbered dataset fails the run (exit 2). refusal=true adds T1's refusal-identity check.",
+  "rows": [
+    {
+      "row": 1,
+      "endpoint": "/ask",
+      "path": "EPA RMP fact (single document)",
+      "refusal": false,
+      "question_sha256": "20364178373c4afea9cf9aa36bda1ab428ead6b2eceb70e241dba8e54300f04c"
+    },
+    {
+      "row": 4,
+      "endpoint": "/ask",
+      "path": "equipment manual (Fisher 667)",
+      "refusal": false,
+      "question_sha256": "89577a025381c9366f307373b2fa6d4ee67b0bfe1b0b7c3e5b3f6b4a51bed4a1"
+    },
+    {
+      "row": 15,
+      "endpoint": "/ask",
+      "path": "OSHA lockout/tagout regulation",
+      "refusal": false,
+      "question_sha256": "7ca60dd90f043777e164c79ef75f1d8e027ae7fbd5e3b16abcac163ad68725e2"
+    },
+    {
+      "row": 20,
+      "endpoint": "/ask",
+      "path": "SDS identifier (Airgas UN number); touched by G6",
+      "refusal": false,
+      "question_sha256": "a831be05e462f78b49048c23ddcc0952b98b714df8b113ba0d035fd79d093193"
+    },
+    {
+      "row": 21,
+      "endpoint": "/ask",
+      "path": "comparison (Airgas SDS vs OSHA Table Z-1); touched by G12",
+      "refusal": false,
+      "question_sha256": "ee62ff35805d1fe6c063bbdbd44fdf63aba5a12dbd2db61ceb9bd305ce6aed76"
+    },
+    {
+      "row": 25,
+      "endpoint": "/ask",
+      "path": "the refusal row (acetone flash point, no router on /ask)",
+      "refusal": true,
+      "question_sha256": "34a21d1f300e925f60b0bb6d1a6aef1f9ddbd0bc1577ae99f91a05c1fe26606f"
+    },
+    {
+      "row": 26,
+      "endpoint": "/ask",
+      "path": "NIOSH narrative (Alert Case 1)",
+      "refusal": false,
+      "question_sha256": "24b9104d713e458526d7949928d7ff6d4ef96407cff85b0f8e2ab4a38bfef539"
+    },
+    {
+      "row": 24,
+      "endpoint": "/ask/agent",
+      "path": "source-scoped (Nutrien boiling point), fan-out off as shipped",
+      "refusal": false,
+      "question_sha256": "2d97b83eeb4f8d8f4d37964b48ea850e3a02584c580de5049e4ee103cccaf50b"
+    }
+  ]
+}

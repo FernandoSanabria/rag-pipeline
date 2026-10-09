@@ -37,4 +37,5 @@ packages = ["src", "api", "agent", "mcp_server"]
 dev = [
     "httpx==0.28.1",
     "pytest==9.1.1",
+    "pyyaml==6.0.3",
 ]

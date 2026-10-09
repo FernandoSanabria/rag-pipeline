@@ -151,6 +151,24 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
   - 2026-10-08: context_recall on byte-identical contexts scored 1.0 and 0.667 (G12 row 9, trials 2–3) — second
     recorded instance of per-row judge variance on identical input; the per-row band used in G12 P3 was the measured
     spread for this reason.
+  - 2026-10-09: generation variance changed faithfulness on identical input.
+    - **What happened:** G9 row 24 (`/ask/agent`) served two answers on byte-identical contexts, under the same
+      reported fingerprint (`fp_2fb502e36f`, seed 42, temperature 0):
+      - A: faithfulness 1.0, correctness 0.911;
+      - B: faithfulness 0.75, correctness 0.5928, in 2 of 7 G9 runs.
+    - **Where B appeared:** answer B was observed only on GitHub-hosted runners (2/7) and never locally (0/24
+      regenerations, 0/23 historical), with byte-identical contexts and the same reported fingerprint.
+    - **Environment and time are not separable.** Both B observations fell between 05:07 and 05:11 UTC. CI then served A
+      in all 14 later observations, and every local regeneration came after 05:11. So the data cannot separate the
+      calling environment from a time window.
+    - **Organization header: same.** CI and local share the organization and the project.
+    - **B's label: unclassified.** It did not recur once encrypt-on-breach could read it (G9b,
+      [`g9_PREDICTION.md`](g9_PREDICTION.md)).
+  - 2026-10-09: judge variance on byte-identical answers, the third recorded instance.
+    - **What happened:** G9's PR run #5 had a cold cache, so all 8 rows were judged fresh, and every answer was
+      byte-identical to the snapshot's. Answer correctness still moved −0.10 on row 4 and −0.25 on row 21, while
+      faithfulness didn't move.
+    - **Consequence:** this is the evidence for T3 (answer correctness) staying reported in the smoke.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the
@@ -395,3 +413,74 @@ items, so it stays off (`INPUT_GUARD_ENABLED = False`).
 - **Wall time at p50:** fan-out 6.93 s against 4.95 s, so +1.98 s (P6 FALSIFIED).
 - **Context handed to generation:** 20–23 chunks against 10–13, and 12,567 tokens against 5,528 at p50.
 - **Both compared sources present:** 12/12 against 6/12 (P2 HOLDS).
+
+## G9 smoke evaluation in CI (recorded 2026-10-09): G9 falsified and demoted; G9b holds
+- **Sources:**
+  - the design is [`g9_design.md`](g9_design.md);
+  - the pre-registrations and outcomes are in [`g9_PREDICTION.md`](g9_PREDICTION.md): G9, then G9b;
+  - the runner is [`smoke_eval.py`](../scripts/smoke_eval.py), and the workflow is
+    [`eval-smoke.yml`](../.github/workflows/eval-smoke.yml);
+  - the snapshot is [`smoke_snapshot.json`](smoke_snapshot.json), from baseline run #3.
+- **The suite:** 8 rows of the frozen 28. Rows 1, 4, 15, 20, 21, 25 and 26 run on `/ask`, and row 24 on `/ask/agent`.
+  Each goes through `api.main._answer`, so the judged answer is the served one.
+- **Scoring:** RAGAS faithfulness and answer correctness with run_eval.py's judge, one sample at a time, behind a
+  content-keyed cache.
+- **Fingerprints** (all `gpt-4o-mini-2024-07-18`):
+  - generation: `fp_2fb502e36f` on every CI call (133 calls);
+  - judge: `fp_8f7cd315de` ×60, `fp_0c32a49902` ×20, `fp_91ad5947c4` ×20.
+- **Rows are 1-based; times are UTC (2026-10-09).** Runs are `eval-smoke` run numbers. Each commit below is tagged
+  `evidence/*` or `prereg/*`, so it survives the squash-merge.
+
+| run | trigger | created | commit | build | role | result |
+|---|---|---|---|---|---|---|
+| #1 | pull_request | 04:59 | `8856abd` | G9 | before a snapshot: `smoke` skipped (baseline pending) | neutral |
+| #2 | workflow_dispatch | 05:01 | `8856abd` | G9 | baseline; artifact lost (upload-artifact v4 skips hidden paths) | green |
+| #3 | workflow_dispatch | 05:04 | `1db5e6e` | G9 | **the baseline** (snapshot) | green |
+| #4 | pull_request | 05:04 | `1db5e6e` | G9 | before a snapshot: skipped | neutral |
+| #5 | pull_request | 05:06 | `18b07c8` | G9 | gated, cold cache (0 hits) | green |
+| #6–#10 | workflow_dispatch | 05:06–05:10 | `18b07c8` | G9 | **G9 P1, P3, P4, P5** | #6 and #10 red (T2 row 24) |
+| #11 | workflow_dispatch | 05:38 | `18b07c8` | G9 | **G9 P2**, negative proof | red, as required |
+| #12 | pull_request | 05:41 | — | G9 | cancelled by #13 (concurrency) | — |
+| #13 | pull_request | 05:42 | `f7c1488` | G9 | gated | green |
+| #14 | pull_request | 05:46 | `8ed1667` | G9b | gated | green |
+| #15–#19 | workflow_dispatch | 05:46–05:50 | `8ed1667` | G9b | **G9b P1b, P3b** | all green; T2 reported on row 21 in #15–#17 |
+| #20 | workflow_dispatch | 05:52 | `8ed1667` | G9b | **G9b P2b**, negative proof | red, as required (T1 row 1) |
+| #21–#25 | workflow_dispatch (`rows=24`) | 05:53–05:56 | `8ed1667` | G9b | DIAGNOSTIC: reading answer B | green; row 24 served A in all 5 |
+| #26 | pull_request | 06:04 | — (the PR head after the G9b outcome docs) | G9b | gated | green; T2 reported on row 21 (0.3333) |
+
+**Per-row values.** The G9 runs are tabled in the G9 outcome section of [`g9_PREDICTION.md`](g9_PREDICTION.md), and the
+G9b runs in its G9b outcome.
+- **Unchanged answers:** every row whose answer matched the snapshot's replayed the snapshot's score from the cache.
+- **Exceptions** (faithfulness, correctness):
+
+| row | what | runs |
+|---|---|---|
+| 24 | answer B: 0.75, 0.5928 | #6, #10 |
+| 21 | two new variants: 0.3333, 0.9557/0.9565 | #15, #16, #17, #20 |
+| 21 | an earlier variant: 1.0, 0.9549 | #6, #8, #9, #19 |
+| 21 | another variant: 1.0, 0.9568 | #14 |
+| 15 | a variant: 0.8, 0.457 | #15 |
+| 26 | a variant: 1.0, 0.5767 | #7, #10, #13, #15, #19 |
+| 4 | the same answer on reordered contexts (embedding near-tie swap, 8e-06): 1.0, 0.7853, re-judged | #10 |
+
+**The smoke-reds ledger** (refinement D; append-only).
+- **Each entry:** the run, the row, the tier, and the classification.
+- **Noise** means the base commit is also red, or it was a T1 near-tie flip; otherwise it is a true regression.
+
+**G9 window** (the G9 build: #5–#10, #13):
+1. #6, row 24, T2: noise. The code was unchanged from the baseline; it is generation variance on identical input
+   (answer B).
+2. #10, row 24, T2: noise. The same answer B, replayed from the cache.
+
+That is 2 noise reds in 7 gated runs, so **the registered demotion fired**: G9's check became reported-only.
+
+**G9b window** (the G9b build, from #14 on): 0 reds in 6 gated runs (#14–#19).
+- **Appended, #26:** green, so the window stands at 0 reds in 7 gated runs. Row 21's misattribution variant, read
+  through the ciphertext, recurred there: 5 of the 8 G9b-build runs that served row 21.
+
+**Reported, not red** (G9b's T2 floor):
+- row 21 in #15, #16, #17 and #20;
+- row 4 in #20 (the negative proof's canned answer).
+
+**The required check.** G9b's P1b and P2b hold, so the maintainer may make `eval-smoke / smoke` and `gate` required.
+The demotion rule stays registered.

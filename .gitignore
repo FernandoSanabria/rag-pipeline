@@ -27,3 +27,7 @@ scripts/prechunk_top10_baseline.json
 # like-for-like eval scratch (gitignored; result in the committed pre-reg doc)
 scripts/likeforlike_eval.py
 scripts/likeforlike_result.json
+
+# G9 smoke evaluation: the judge cache (actions/cache) and the run report (an Actions artifact) — never committed
+.smoke-cache/
+.smoke-out/
