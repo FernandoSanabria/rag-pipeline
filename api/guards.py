@@ -70,7 +70,7 @@ REFUSAL_SCORE = 0.25  # the LOW refusal tier of api/confidence.py
 
 @dataclass(frozen=True)
 class Refusal:
-    stage: Literal["input", "output"]
+    stage: Literal["input", "output", "review"]
     reason: str
     answer: str
     basis: str
@@ -97,6 +97,23 @@ REFUSALS: dict[str, Refusal] = {
         Refusal("output", "untraceable_numbers",
                 "The answer was withheld because its figures could not be traced to the retrieved documents.",
                 "low: refused — untraceable figures (output guard)"),
+    ]
+}
+
+# G10b approval gate (agent/review.py): its own table, so G6's contract table above stays exactly as designed. Each
+# fails closed: a review that is rejected, expired, lost or unavailable never becomes an unreviewed answer.
+REVIEW_REFUSALS: dict[str, Refusal] = {
+    r.reason: r
+    for r in [
+        Refusal("review", "rejected",
+                "A reviewer rejected this answer before it was generated.",
+                "low: refused — rejected in review"),
+        Refusal("review", "expired_or_lost",
+                "This review has expired or was lost; resubmit the question.",
+                "low: refused — review expired or lost"),
+        Refusal("review", "review_unavailable",
+                "This question needs a review before it can be answered, and review is not available right now.",
+                "low: refused — review unavailable"),
     ]
 }
 

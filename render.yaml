@@ -25,3 +25,9 @@ services:
       - key: RETRIEVAL_NAMESPACE
         value: semantic_v2
       # RETRIEVAL_K omitted on purpose — the shipped k=10 default lives in src/config.py.
+      # G10b approval gate (eval/g10b_design.md, durability option A): the SQLite file that holds paused reviews.
+      # Render's free plan has no persistent disk, so a pause does NOT survive a redeploy, restart or spin-down; the
+      # resume then fails closed ("expired or lost") and never answers unreviewed. Unset = no checkpointer: a question
+      # the gate fires on is refused.
+      - key: REVIEW_DB_PATH
+        value: /app/var/review.sqlite

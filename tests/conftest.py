@@ -44,3 +44,15 @@ def _decomposer_declines(monkeypatch):
 
     monkeypatch.setattr(graph, "_decomposer_llm",
                         lambda: _StaticLLM(graph.Decomposition(comparison=False, sub_questions=[])))
+
+
+@pytest.fixture(autouse=True)
+def _review_gate_off(monkeypatch):
+    """G10b: the approval gate's trigger is a policy on the question's wording (agent/review.py). Default it OFF, with no
+    checkpointer configured, so every existing test keeps exercising the non-firing path, which must stay
+    byte-identical to pre-G10b; tests/test_review.py switches the real policy back on."""
+    from agent import review
+
+    monkeypatch.delenv("REVIEW_DB_PATH", raising=False)
+    monkeypatch.delenv("REVIEW_TTL_S", raising=False)
+    monkeypatch.setattr(review, "trigger_reason", lambda question, trace_notes: None)

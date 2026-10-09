@@ -89,16 +89,18 @@ def _tool_llm_no_calls(monkeypatch):
     monkeypatch.setattr(graph, "_tool_llm", _tool_llm_stub())
 
 
-def test_fresh_state_initializes_all_thirteen_channels():
-    """State construction contract: fresh_state seeds ALL 13 channels with correct defaults (9 original +
-    the 3 G1 tool channels + the G12 `fanout` staging channel), so no node ever reads an unset channel and the
-    add-reducer accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY (invariant (a))."""
+def test_fresh_state_initializes_all_fourteen_channels():
+    """State construction contract: fresh_state seeds ALL 14 channels with correct defaults (9 original +
+    the 3 G1 tool channels + the G12 `fanout` staging channel + the G10b `review` record), so no node ever reads an unset
+    channel and the accumulators (`retrieved`, `trace_notes`, `tool_results`, `fanout`) start EMPTY (invariant (a)).
+    Replaces test_fresh_state_initializes_all_thirteen_channels (G10b added a channel)."""
     st = fresh_state("what is X?")
     assert set(st) == {
         "question", "sub_questions", "route", "source_doc_id", "retrieval_error",
         "retrieved", "answer", "citations", "trace_notes",
-        "tool_calls", "tool_results", "tool_iterations", "fanout",
+        "tool_calls", "tool_results", "tool_iterations", "fanout", "review",
     }
+    assert st["review"] == {}               # G10b: the gate did not fire
     assert st["fanout"] == []               # G12: add-reducer accumulator starts empty
     assert st["question"] == "what is X?"
     assert st["route"] == "direct"         # 2A / v4 direct path
@@ -457,19 +459,25 @@ def test_tool_loop_hits_cap_and_terminates(monkeypatch):
     gen.assert_called_once()                                                  # generated after the cap
 
 
-# ---- G12: the fan-out ships switched off ----------------------------------------------------------------------------
-# The pre-G12 topology, recorded from scripts/render_graph.py at the branch point (it is also the README's graph block).
-PRE_G12_NODES = {"__start__", "__end__", "router", "retrieve", "source_scoped_retrieve", "tool_decide", "tool_exec",
-                 "generate"}
-PRE_G12_EDGES = {("__start__", "router"), ("generate", "__end__"), ("retrieve", "tool_decide"), ("router", "retrieve"),
-                 ("router", "source_scoped_retrieve"), ("source_scoped_retrieve", "tool_decide"),
-                 ("tool_decide", "generate"), ("tool_decide", "tool_exec"), ("tool_exec", "tool_decide")}
+# ---- The shipped topology (G12 off; G10b's review gate on) ----------------------------------------------------------
+# Hardcoded from scripts/render_graph.py on the G10b build (it is also the README's graph block). This REPLACES
+# test_shipped_graph_topology_is_pre_g12: the shipped topology legitimately changed in G10b (eval/g10b_design.md), so a
+# test named for the pre-G12 graph would now assert something false.
+SHIPPED_NODES = {"__start__", "__end__", "router", "retrieve", "source_scoped_retrieve", "tool_decide", "tool_exec",
+                 "review_gate", "review_wait", "generate"}
+SHIPPED_EDGES = {("__start__", "router"), ("router", "retrieve"), ("router", "source_scoped_retrieve"),
+                 ("retrieve", "tool_decide"), ("source_scoped_retrieve", "tool_decide"), ("tool_decide", "tool_exec"),
+                 ("tool_exec", "tool_decide"), ("tool_decide", "review_gate"), ("review_gate", "generate"),
+                 ("review_gate", "review_wait"), ("review_gate", "__end__"), ("review_wait", "generate"),
+                 ("review_wait", "__end__"), ("generate", "__end__")}
+FANOUT_NODES = {"decompose", "branch_retrieve", "join"}
 
 
-def test_shipped_graph_topology_is_pre_g12():
+def test_shipped_graph_topology_is_expected():
     g = graph._compiled_graph().get_graph()
-    assert set(g.nodes) == PRE_G12_NODES
-    assert {(e.source, e.target) for e in g.edges} == PRE_G12_EDGES
+    assert set(g.nodes) == SHIPPED_NODES
+    assert {(e.source, e.target) for e in g.edges} == SHIPPED_EDGES
+    assert not FANOUT_NODES & set(g.nodes)  # G12 stays off as shipped
 
 
 def test_fanout_is_off_in_the_shipped_graph(monkeypatch):
