@@ -206,3 +206,62 @@ and the threshold is to be re-derived from accumulated runs. The running list co
 - the CI runs, $0.084;
 - the local dev runs, $0.035;
 - the local regeneration of row 24, $0.030.
+
+## G9b pre-registration (recorded 2026-10-09)
+This section is committed **before** any G9b code, on the G6 v1/v2 precedent: a falsified gate is recorded as it was,
+and its successor is pre-registered separately. It gets its own annotated tag, `prereg/g9b`, pushed before any G9b
+run. Outcomes are appended below it later. Rows are 1-based.
+
+**Design: what changes from G9.**
+- **T1 is the only hard tier:**
+  - set equality on the `(source_doc_id, page)` set;
+  - the refusal identity on row 25.
+- **T2 and T3 are reported,** as deltas against the unchanged `eval/smoke_snapshot.json`.
+  - A T2 breach, faithfulness < snapshot − 0.2, becomes a `::warning::` and a "below floor (reported)" row. It is
+    never red.
+- **Unchanged:** the caps, the content-keyed cache and the negative-proof mechanism. The negative proof now proves T1
+  red via row 1 (k=2), and records T2's reported line on row 4 (the canned unfaithful answer).
+- **No new T2 mechanism and no re-derived T2 threshold.** G9's row-24 data is not used for design.
+
+**Diagnostics added in G9b.** None of them changes a verdict.
+1. **Encrypt-on-breach.**
+   - **When:** a row trips T1, or trips the reported T2 floor.
+   - **What:** the runner encrypts **that row's answer text only**. Contexts, questions and other document text are
+     never encrypted or written.
+   - **How:** with the OpenPGP public key committed at `eval/smoke_pubkey.asc`. The ciphertext goes in the artifact
+     next to the hashes. The private key is held off-repo by the maintainer.
+   - **Without gpg,** no ciphertext is written: never plaintext.
+2. **The generation call's response headers.** The runner logs `openai-organization`, and `openai-project` if present,
+   in CI and locally. These identify the calling account, not a credential.
+3. **A `rows` dispatch input,** for diagnostic runs on a subset of the 8. Those runs are labelled DIAGNOSTIC and are
+   outside the demotion window.
+
+**In-sample, stated plainly.** T1's 48/48 (G9's runs #5–#10) is in-sample. The 5 fresh characterization runs on the
+G9b build commit are the out-of-sample test.
+
+**Predictions:**
+
+| prediction | what | falsified by |
+|---|---|---|
+| **P1b:** no false red | 5 `workflow_dispatch` runs on the G9b build commit give **0 reds** (T1 is the only red tier) | any red |
+| **P2b:** a true red | the negative proof goes red, with **T1 row 1** named. The row-4 T2 reported line is recorded | a green run |
+| **P3b:** retrieval stability | T1 set equality holds on **40/40** (8 rows × 5 runs) | any row's set varying |
+
+**The required check** is turned on only if P1b **and** P2b hold, and the maintainer does that. The agent doesn't
+change branch protection.
+
+**The demotion rule** is registered again, unchanged: **two noise reds in any twenty gated runs** → reported-only, and
+the threshold is re-derived.
+- **The window** starts at G9b's first characterization run. PR and push runs on commits carrying the G9b build count.
+- **Outside it:** the negative proof, diagnostic runs and baselines.
+
+**Reading answer B (G9's row 24), registered.**
+1. Read B from the ciphertext of G9b's 5 characterization runs and P2b. Its answer sha256 is `b558d1354cdd4937c4b0092c2d8f36b770cdcc3268831d4abe8727058f521c0c`.
+2. If B doesn't appear, dispatch up to 5 `rows=24` diagnostic runs, stopping at the first B (cap $0.03).
+3. If it still doesn't appear, B is recorded as unclassified: "B reproduced only on GitHub-hosted runners (2/7) and
+   never locally (0/24 plus 23 historical); its text was not readable through the public artifact".
+4. **Once read, B is labelled either:**
+   - **(i)** an unsupported claim at temperature 0, naming the figure or claim that differs;
+   - **(ii)** the judge penalizing a phrasing change.
+
+   **Either way,** G9's two reds stay classified as noise, because the code was unchanged.
