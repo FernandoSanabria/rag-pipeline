@@ -1,0 +1,125 @@
+name: eval-smoke
+run-name: ${{ inputs.simulate_regression && 'eval-smoke — SIMULATED REGRESSION (intentional red, negative proof)' || inputs.baseline && 'eval-smoke — BASELINE (writes a snapshot artifact)' || format('eval-smoke — {0}', github.event_name) }}
+
+# G9: an 8-row smoke evaluation on every PR (eval/g9_design.md, eval/g9_PREDICTION.md; runner: scripts/smoke_eval.py).
+# Hard tiers: T1, the retrieval page set per row plus the refusal identity on the refusal row; T2, faithfulness may not
+# fall more than 0.2 below the committed snapshot (eval/smoke_snapshot.json). T3, answer correctness, is reported only.
+#
+# This is NOT ci.yml. ci.yml stays hermetic (no secrets, no network) and untouched. This workflow reads two repository
+# secrets, OPENAI_API_KEY and PINECONE_API_KEY. When they are absent (a fork PR), or no gated path changed, or no snapshot
+# exists yet, the `gate` job says why and `smoke` shows Skipped: neutral, never red, never a silent green.
+# The paths filter lives in the gate job, not in `on.paths`: a required check behind `on.paths` never reports on a PR
+# that doesn't match, and blocks it.
+#
+# The repository is public: the log, the step summary and the artifact carry derived values only (page sets, scores,
+# hashes). Secrets surface: same-repo PR runs receive the keys, so anyone with write access could read them by editing
+# this workflow in a PR. That is the accepted trade-off for a single-owner repo. Fork PRs never receive them.
+#
+# NEGATIVE PROOF: a `workflow_dispatch` run with `simulate_regression: true` is red by design. Row 1 retrieves at k=2
+# (T1) and row 4's answer is replaced by a canned unfaithful sentence before judging (T2); both must be named. That red
+# entry in the Actions history is evidence for the gate, not a broken pipeline. Its run is named "SIMULATED REGRESSION"
+# and its ::error:: lines are prefixed "SIMULATED —".
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      simulate_regression:
+        description: "Dispatch-only NEGATIVE PROOF: row 1 at k=2 (T1) and an unfaithful row-4 answer (T2). Intentionally red."
+        type: boolean
+        default: false
+      baseline:
+        description: "Write a new snapshot as an artifact instead of gating. Commit it deliberately, naming its ledger row."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-smoke-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the gate diffs base...head
+
+      - name: Decide (secrets present by name only, gated paths, snapshot)
+        id: gate
+        env:
+          HAS_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.PINECONE_API_KEY != '' }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASELINE: ${{ inputs.baseline && 'true' || 'false' }}
+        run: python3 scripts/smoke_eval.py gate --event "$EVENT" --base "$BASE" --head "$HEAD" --baseline "$BASELINE" --has-secrets "$HAS_SECRETS"
+
+  smoke:
+    name: smoke
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      INDEX_NAME: equip-docs-rag      # as committed in render.yaml
+      LANGCHAIN_TRACING_V2: "false"
+      RAGAS_DO_NOT_TRACK: "true"
+      SIMULATE: ${{ inputs.simulate_regression && 'true' || 'false' }}
+      BASELINE: ${{ inputs.baseline && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.25"
+          enable-cache: true
+
+      - name: Install dependencies (no dev group)
+        run: uv sync --frozen --no-dev
+
+      # Refinement A: restore the newest judge cache, merge this run's entries into it, save the union under a new key.
+      - name: Restore the judge cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .smoke-cache
+          key: smoke-judge-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: smoke-judge-
+
+      - name: Smoke evaluation (8 rows; exit 1 = hard-tier red, 2 = cap or configuration)
+        run: |
+          args=()
+          if [ "$BASELINE" = "true" ]; then args+=(--baseline); fi
+          if [ "$SIMULATE" = "true" ]; then args+=(--simulate-regression); fi
+          uv run --no-sync python scripts/smoke_eval.py "${args[@]}"
+
+      # always(): a red run's scores are content-keyed and harmless; the canned answer's key never matches a real row.
+      - name: Save the judge cache (merged)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .smoke-cache
+          key: smoke-judge-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload the report (derived values only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-${{ github.run_number }}-${{ github.run_attempt }}
+          path: .smoke-out/
+          if-no-files-found: warn
+          retention-days: 90
