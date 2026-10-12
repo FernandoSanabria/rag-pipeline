@@ -12,6 +12,10 @@ measured token count × a published list price). List prices used for derivation
 | `gpt-4o-mini` | $0.15 / 1M | $0.075 / 1M | $0.60 / 1M |
 | `text-embedding-3-small` | $0.02 / 1M | — | — |
 | `text-embedding-ada-002` | $0.10 / 1M | — | — |
+| Amazon Nova 2 Lite (Bedrock, the `us.` profile) | $0.33 / 1M | $0.0825 / 1M (cache read) | $2.75 / 1M |
+
+Nova 2 Lite's prices (G11) come from the AWS Price List API (`AmazonBedrock`, us-east-1, publication 2026-10-10). They
+are the in-region standard rate, which is what the `us.` cross-region profile is billed at.
 
 ## Provenance
 - **OpenAI usage dashboard** — read 2026-08-08, range 2026-07-01 → 2026-08-08. Gives totals and
@@ -234,3 +238,27 @@ The G9 smoke runs on this PR's pushes are not included; their spend is in each r
 **Closure, 2026-10-09:** P3b and the two positive controls made a few live requests to the deployed service: two
 pauses, one approve, one resume, the status reads and one refused control. That is a few router, tool and generation
 calls, under $0.01 at list price. Negligible and not counted.
+
+## H. G11 provider seam (2026-10-12) [d, from measured token counts × list price; AWS billing not reconciled]
+**Source:** the `spend` block of `eval/provider_metrics.json`, plus the discarded plumbing check's own spend block.
+
+| item | requests | input tokens (cached) | output tokens | cost | flag |
+|---|--:|--:|--:|--:|:--|
+| GATE 1 probes (a LangSmith read, the AWS Price List API, dry dependency resolves, one `sts get-caller-identity`) | — | — | — | $0 | d |
+| plumbing check before the run (rows 9 and 21, one trial; P6 once; discarded) | 32 | — | — | $0.0252 | d |
+| Nova 2 Lite generation (84 agent-path answers + 3 for P6) | 87 | 637,302 (0) | 15,452 | $0.2528 | d |
+| `gpt-4o-mini` generation (84 + 3 for P6) | 87 | 647,421 (438,912) | 8,863 | $0.0695 (uncached list $0.1024) | d |
+| judge, `gpt-4o-mini` (168 answers × 2 metrics) | 840 | 1,885,537 (847,488) | 212,502 | $0.3468 | d |
+| router and tool decisions (memoized, shared by both arms) | 59 | 268,430 (38,528) | 2,655 | $0.0390 | d |
+| embeddings, `text-embedding-3-small` (28 queries, plus the judge's) | 364 | 30,559 | — | $0.0006 | d |
+| **total** | | | | **~$0.73** of the $5.00 budget (the run $0.709; the check $0.025) | d |
+
+**Per answer** (p50, the P4 measure):
+- `gpt-4o-mini`: **$0.00116** at uncached list price, or $0.00075 as billed, with OpenAI's prompt cache on repeated
+  trials;
+- Nova 2 Lite: **$0.00294** (no cache used), **2.54×**.
+- p50 tokens: 7,453 in and 133 out for Nova, against 7,505 and 90.
+
+Nova's charge is derived from the usage Converse reports, at the list price above. Reconcile it in AWS Cost Explorer
+(service: Amazon Bedrock) once billed. The G9 smoke runs on this PR's pushes are not included; their spend is in each
+run's artifact.

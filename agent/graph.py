@@ -82,7 +82,7 @@ from agent import review
 from agent.state import AgentState, RemoveChunk, chunk_content_key, chunk_key, fresh_state
 from agent.tools import TOOL_SCHEMAS, ToolError, run_tool
 from src.config import get_settings
-from src.generate import generate
+from agent.generation import generate  # G11: the provider seam; openai (default) is the frozen src.generate.generate
 from src.retrieve import dense_search, format_contexts
 
 logger = logging.getLogger(__name__)

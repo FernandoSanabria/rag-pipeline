@@ -75,7 +75,9 @@ phase0/
   it ships off. The served graph adds G10b's approval gate (`review_gate` → `review_wait`) immediately before
   `generate`. `review.py` holds its trigger policy, the SQLite checkpointer factory (`REVIEW_DB_PATH`), the TTL and the
   per-thread lock. `state.py`'s `retrieved` reducer appends exactly as `operator.add` and also accepts the
-  `RemoveChunk`/`Reset` sentinels a reviewer's amendment uses.
+  `RemoveChunk`/`Reset` sentinels a reviewer's amendment uses. `generation.py` is G11's provider seam: the `generate`
+  node calls it, and `GENERATION_PROVIDER` selects `openai` (the default, which is the frozen `src.generate.generate`
+  itself) or `bedrock` (Amazon Nova 2 Lite through Bedrock's Converse API; measured and not recommended).
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
   `POST /mcp`, the G5 MCP server over streamable HTTP; G10b adds `POST /ask/agent/resume` and
   `GET /ask/agent/review/{thread_id}`, and `/ask/agent` answers 202 when the approval gate pauses),
@@ -127,8 +129,9 @@ router → {direct: retrieve | source_scoped: source_scoped_retrieve} → tool_d
     request), and the API answers 202 with the evidence.
   - A reviewer resolves it through `POST /ask/agent/resume`. With no checkpointer configured, the request is refused,
     never answered unreviewed.
-- **generate** wraps the frozen `src.generate.generate` and short-circuits to an empty answer on a
-  retrieval error (no LLM cost), mirroring `pipeline.ask` exactly.
+- **generate** wraps the frozen `src.generate.generate`, through G11's provider seam (`agent/generation.py`, `openai`
+  by default), and short-circuits to an empty answer on a retrieval error (no LLM cost), mirroring `pipeline.ask`
+  exactly.
 
 **Why `/ask/agent` is *richer*, not *better*.** It pays a `gpt-4o-mini` router call and a tool-
 decision call on **every** request, including the majority that then route direct and get the
@@ -233,6 +236,12 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     [`eval/replay_safety_design.md`](eval/replay_safety_design.md); the design is in
     [`eval/g10b_design.md`](eval/g10b_design.md), and the pre-registration and its outcome are in
     [`eval/g10b_PREDICTION.md`](eval/g10b_PREDICTION.md). This file does not carry a result those files own.
+  - **G11 = the provider seam for generation** ([`agent/generation.py`](agent/generation.py)). Built and shipped with
+    `openai` as the default, which is the frozen generator itself. Amazon Bedrock (Nova 2 Lite) is a configured
+    alternative, measured like-for-like and **not recommended**: it fails the pre-registered shipping rule on per-row
+    quality, refusal and cost. The design is in [`eval/g11_design.md`](eval/g11_design.md); the pre-registration and
+    its outcome are in [`eval/g11_PREDICTION.md`](eval/g11_PREDICTION.md). This file does not carry a result those
+    files own.
 
 ## 7. Conventions & guardrails
 
@@ -260,7 +269,8 @@ this section explains the *why* and points there.
   `data/raw/` = presumed tier-2 (vendor-copyrighted, gitignored). The folder is a signal to
   **verify** against the manifest's checklist, not proof.
 - **The frozen contract.** `src/generate.py` and its inputs are treated as **untouched**: the agent's
-  `generate` node and the direct no-tool path **byte-reproduce v4** exactly (retrieval depth read
+  `generate` node (with the default `GENERATION_PROVIDER=openai`, G11's P1) and the direct no-tool path
+  **byte-reproduce v4** exactly (retrieval depth read
   from settings, not hardcoded; the `{answer, contexts, chunks}` shape the harness reads is frozen).
   Out-of-scope to edit during feature work: `src/generate.py`, `src/pipeline.py`, `src/retrieve.py`,
   `render.yaml`, and CI. This is *why* new capability (like the G1 tools) enters through the synthetic-
