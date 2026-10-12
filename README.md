@@ -206,6 +206,28 @@ Measured live on rows 10 and 11, 3 trials each, every path did what it should: a
 
 **No authentication.** Anyone who can reach the service can approve or amend a paused safety answer. A reviewer token is the follow-on. Until then, amend can only **remove** evidence, never add it: [`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md).
 
+## Providers
+
+The agent path's **generation** sits behind a provider seam (G11, [`agent/generation.py`](agent/generation.py)), selected by `GENERATION_PROVIDER`.
+- **`openai`, the default,** is the frozen generator itself (`gpt-4o-mini`, temperature 0, seed 42). Its request body is byte-identical to the pre-seam one on all 28 frozen questions.
+- **`bedrock`** sends the same two messages to Amazon Nova 2 Lite (`us.amazon.nova-2-lite-v1:0`) through Bedrock's Converse API, with boto3.
+- **Only generation moves.** The router, tool decision, guards, judge and embeddings stay on OpenAI, and `/ask` stays on OpenAI by design. The configuration names are in [`.env.example`](.env.example).
+
+**Measured like-for-like** under pre-registration ([`eval/g11_PREDICTION.md`](eval/g11_PREDICTION.md)): the frozen 28, 3 trials per arm, with the contexts handed to generation byte-identical in 84/84 pairs.
+
+| | `gpt-4o-mini` (default) | Nova 2 Lite |
+|---|--:|--:|
+| faithfulness, mean of 28 rows | 0.979 | 0.954 |
+| answer correctness, mean of 28 rows | 0.646 | 0.648 |
+| rows failing the per-row check (Nova's mean below OpenAI's three-trial range, and more than 0.03 below OpenAI's mean) | — | faithfulness 9/28, correctness 8/28 |
+| cost per answer, p50, uncached list price | $0.00116 | $0.00294 (2.5×) |
+| latency per answer, p50 | 1.35 s | 1.39 s |
+| exact refusal when the context lacks the answer (row 25 on `/ask` contexts) | 3/3 | 0/3 |
+
+**Why `openai` stays the default.** The pre-registered rule required Nova to pass the per-row quality check and the refusal check, and to cost at most 1.5× per answer. It failed all three. Bedrock ships configured, off by default, and **not recommended**.
+
+**The hazard:** when its context lacks the answer, Nova explains, offers a value from another document, and only then gives the refusal sentence, and because the confidence layer recognizes only the exact sentence, that answer is served at "high" confidence with every retrieved page cited ([`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md)).
+
 ## Evaluation in CI
 
 Every PR that touches the pipeline, agent, API or eval code runs **`eval-smoke`**, an 8-row smoke evaluation ([`.github/workflows/eval-smoke.yml`](.github/workflows/eval-smoke.yml), [`scripts/smoke_eval.py`](scripts/smoke_eval.py)) beside the hermetic CI. It sends each row through the served path and fails the build only on **retrieval**: a row's retrieved pages differ from the committed snapshot, or the refusal row stops refusing. Faithfulness and answer correctness are **reported, not gated**. The first version gated faithfulness too, and its pre-registration was falsified: 2 of 5 runs on unchanged code went red because generation at temperature 0 produced a less-faithful answer variant on identical input (G9). The retrieval-only gate then held 5 of 5 runs with no false red, and its deliberate negative proof went red as required (G9b). When a row breaches, its answer is attached to the run only as ciphertext for the maintainer's key, because the logs are public. Without the two API secrets (a fork PR) the job is skipped, never red. The full 28-row suite stays a manual run. The design, predictions and every run are in [`eval/g9_design.md`](eval/g9_design.md), [`eval/g9_PREDICTION.md`](eval/g9_PREDICTION.md) and [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).

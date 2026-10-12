@@ -169,6 +169,20 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
       byte-identical to the snapshot's. Answer correctness still moved −0.10 on row 4 and −0.25 on row 21, while
       faithfulness didn't move.
     - **Consequence:** this is the evidence for T3 (answer correctness) staying reported in the smoke.
+  - 2026-10-12: provider determinism, measured on byte-identical inputs (G11: each row's contexts were identical across
+    all 3 trials and both arms, 28/28 rows).
+    - **gpt-4o-mini, seed 42, temperature 0:** the three answers were byte-identical on **10/28** rows. 83 of its 84
+      generations reported one fingerprint (`fp_0961e0f740`), and all 18 rows that varied did so under it. So a fixed
+      fingerprint did not make generation repeatable here; the probe above was one prompt.
+    - **Not the prompt cache:** trials 2 and 3 (cached input) match each other on 13 rows, and trial 1 (almost entirely
+      uncached) matches trial 2 on 16 and trial 3 on 14.
+    - **Nova 2 Lite, which has no seed parameter:** **2/28**.
+    - The one generation from a second fingerprint (`fp_412505125b`, row 24, trial 2) was byte-identical to its row's
+      other two.
+  - 2026-10-12: G11's P3 band was a single point on most faithfulness rows. OpenAI scored 1.00 in all three trials on
+    **24 of 28** rows, so there any Nova mean below 0.97 falsifies the row, and one trial at 0.86 is enough (row 9).
+    This is a property of the rule as registered ([`g11_PREDICTION.md`](g11_PREDICTION.md)); it is stated, not
+    reopened.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the
@@ -514,3 +528,78 @@ The demotion rule stays registered.
 | Positive control 1 (not registered) | live, after the merge of `ed8a423`, before 07:25:11Z: row 10 → HTTP 200 `review_unavailable` refusal, no thread | failed; cause not established | — |
 | P3b Render redeploy (live, closure) | pause 07:25:11Z (row 11, `exposure_limit_named`, 10 chunks) → manual deploy of `ed8a423`, live by 07:26:42Z, sweep deleted 0 → resume 07:28:49Z | `expired_or_lost`, route `none`, no answer | HOLDS |
 | Positive control 2 (not registered) | live on `ed8a423`, 08:15:38Z: row 10 → 202 → `pending` → approve at 08:15:41Z | 200, answer with 8 citations, guard null; status `approved` | passed |
+
+## G11 provider seam (recorded 2026-10-12): Bedrock (Nova 2 Lite) measured like-for-like — P3 per row and P6 falsified; `openai` stays the default
+- **Sources:**
+  - the design is [`g11_design.md`](g11_design.md);
+  - the pre-registration and its outcome are in [`g11_PREDICTION.md`](g11_PREDICTION.md);
+  - the derived metrics are in [`provider_metrics.json`](provider_metrics.json);
+  - the runner is [`provider_eval.py`](../scripts/provider_eval.py), in-process, 2026-10-12 13:31–14:06 UTC.
+- **What was measured:**
+  - **the build:** `144e26b`, tagged `evidence/g11-build`;
+  - **the arms:** generation only, `GENERATION_PROVIDER=openai` against `bedrock`, interleaved row by row through
+    `api.main._answer` over `agent.graph.ask`. The embedding, router and tool decisions were memoized and shared, so
+    the contexts were byte-identical (84/84). The G10b review trigger was switched off for the run.
+- **"Fingerprints"** (generation):
+  - OpenAI, `gpt-4o-mini-2024-07-18`: `fp_0961e0f740` on 83 of 84 calls, `fp_412505125b` on 1 (row 24, trial 2);
+  - Nova 2 Lite: Converse returns no fingerprint or model version, so the requested profile id stands in:
+    `us.amazon.nova-2-lite-v1:0` on 84/84;
+  - the judge: `gpt-4o-mini-2024-07-18`, 840 calls across four fingerprints.
+- **Rows are 1-based; N=3 trials per arm per row.**
+- **This is not a canonical five-metric run.** Faithfulness and answer correctness, with run_eval.py's judge one sample
+  at a time, were the two metrics pre-registered for the comparison.
+
+| prediction | what was measured | count | verdict |
+|---|---|---|---|
+| P1 pass-through | the openai request body: frozen generator, seam and `generate_node` (hermetic) | 28/28 byte-identical | HOLDS |
+| P2 context identity | the contexts handed to generation, across arms | 84/84 | HOLDS |
+| P3 quality, per row | the Nova mean below OpenAI's minimum, and more than 0.03 below OpenAI's mean | faithfulness 9/28 rows, correctness 8/28 | FALSIFIED |
+| P3 quality, aggregate | the mean of 28 rows, Nova minus OpenAI (floor −0.03) | faithfulness −0.0258, correctness +0.0018 | HOLDS |
+| P4 cost and latency | Nova's p50 $ per answer (band $0.0015–0.0060) and p50 latency (band 0.6–2.4 s) | $0.00294; 1.39 s (OpenAI $0.00116; 1.35 s) | HOLDS |
+| P5 citations and guard | output-guard withholds; rows losing structured citations | 0 in all six arm-trials; 0 | HOLDS |
+| P5, the inline clause (unregistered) | answers citing a doc id, OpenAI / Nova, per trial | 28/24, 28/26, 28/23 | outside ±2 in trials 1 and 3 |
+| P6 refusal | row 25 on `/ask` contexts: the exact refusal sentence | OpenAI 3/3, Nova 0/3 | FALSIFIED |
+| P7 the shipping rule | what the rule selects | `openai` (Bedrock fails P3, P6 and cost, 2.54×) | HOLDS |
+| P7, "on cost alone" | the predicted reason | P3 and P6 fail too | FALSIFIED |
+
+**Per row** (OpenAI's three trials, Nova's three trials, the difference of means, and the per-row verdict):
+
+| row | faithfulness: OpenAI | Nova | Δ of means | verdict | correctness: OpenAI | Nova | Δ of means | verdict |
+|--:|---|---|--:|---|---|---|--:|---|
+| 1 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.68 0.68 0.68 | 0.79 0.79 0.69 | +0.075 | holds |
+| 2 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.34 0.32 0.31 | 0.44 0.31 0.43 | +0.067 | holds |
+| 3 | 1.00 1.00 0.67 | 1.00 1.00 1.00 | +0.111 | holds | 0.59 0.83 0.16 | 0.41 0.41 0.43 | -0.110 | holds |
+| 4 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.79 0.79 0.79 | 0.83 0.94 0.79 | +0.066 | holds |
+| 5 | 1.00 1.00 1.00 | 0.67 1.00 0.67 | -0.222 | **FALSIFIED** | 0.49 0.69 0.69 | 0.62 0.72 0.62 | +0.033 | holds |
+| 6 | 1.00 1.00 1.00 | 0.67 0.83 0.60 | -0.300 | **FALSIFIED** | 0.59 0.59 0.59 | 0.59 0.25 0.43 | -0.167 | **FALSIFIED** |
+| 7 | 1.00 1.00 1.00 | 0.80 1.00 0.80 | -0.133 | **FALSIFIED** | 0.51 0.51 0.53 | 0.53 0.63 0.53 | +0.046 | holds |
+| 8 | 0.88 0.83 0.88 | 1.00 1.00 1.00 | +0.139 | holds | 0.51 0.65 0.51 | 0.95 0.82 0.95 | +0.352 | holds |
+| 9 | 1.00 1.00 1.00 | 1.00 0.86 1.00 | -0.048 | **FALSIFIED** | 0.59 0.72 0.97 | 0.78 0.79 0.78 | +0.024 | holds |
+| 10 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.92 0.92 0.91 | 0.92 0.92 0.92 | +0.009 | holds |
+| 11 | 1.00 1.00 1.00 | 0.78 1.00 0.71 | -0.169 | **FALSIFIED** | 0.84 0.77 0.86 | 0.47 0.61 0.63 | -0.251 | **FALSIFIED** |
+| 12 | 0.77 0.79 0.80 | 1.00 1.00 1.00 | +0.215 | holds | 0.39 0.57 0.54 | 0.71 0.68 0.69 | +0.197 | holds |
+| 13 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.77 0.67 0.92 | 0.54 0.54 0.36 | -0.308 | **FALSIFIED** |
+| 14 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.37 0.37 0.37 | 0.31 0.28 0.57 | +0.017 | holds |
+| 15 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.49 0.49 0.49 | 0.25 0.28 0.28 | -0.228 | **FALSIFIED** |
+| 16 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.61 0.81 0.95 | 0.73 0.95 0.95 | +0.089 | holds |
+| 17 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.71 0.71 0.65 | 0.75 0.71 0.75 | +0.047 | holds |
+| 18 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.41 0.41 0.41 | 0.68 0.68 0.68 | +0.271 | holds |
+| 19 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.44 0.41 0.41 | 0.76 0.79 0.80 | +0.363 | holds |
+| 20 | 1.00 1.00 1.00 | 0.80 1.00 1.00 | -0.067 | **FALSIFIED** | 0.35 0.82 0.35 | 0.52 0.67 0.93 | +0.200 | holds |
+| 21 | 1.00 1.00 1.00 | 0.93 0.93 0.85 | -0.097 | **FALSIFIED** | 0.96 0.96 0.96 | 0.37 0.54 0.40 | -0.522 | **FALSIFIED** |
+| 22 | 1.00 0.67 1.00 | 1.00 1.00 1.00 | +0.111 | holds | 0.60 0.77 0.77 | 0.79 0.79 0.79 | +0.078 | holds |
+| 23 | 1.00 1.00 1.00 | 1.00 0.75 1.00 | -0.083 | **FALSIFIED** | 0.90 0.75 0.90 | 0.77 0.92 0.77 | -0.036 | holds |
+| 24 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.91 0.91 0.91 | 0.93 0.78 0.68 | -0.117 | **FALSIFIED** |
+| 25 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.58 0.72 0.66 | 0.67 0.67 0.67 | +0.016 | holds |
+| 26 | 1.00 1.00 1.00 | 0.75 0.80 1.00 | -0.150 | **FALSIFIED** | 0.61 0.47 0.47 | 0.63 0.58 0.62 | +0.091 | holds |
+| 27 | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds | 0.62 0.58 0.60 | 0.41 0.37 0.39 | -0.212 | **FALSIFIED** |
+| 28 | 1.00 1.00 1.00 | 1.00 1.00 0.92 | -0.028 | holds | 0.79 0.79 0.84 | 0.89 0.89 0.53 | -0.039 | **FALSIFIED** |
+| **mean** | 0.9794 | 0.9537 | -0.0258 | holds | 0.6458 | 0.6476 | +0.0018 | holds |
+
+**Post-hoc readings** (not part of any verdict; the full text is in [`g11_PREDICTION.md`](g11_PREDICTION.md), P3):
+- **Row 6:** an unsupported inference, a real but small faithfulness defect.
+- **Row 21:** a contradiction plus an unsupported attribution.
+- **Row 11:** mostly an extraction artifact (a flattened two-column NIOSH page), not a Nova defect.
+
+**Determinism:** byte-identical answers across the three trials on 10/28 rows for OpenAI and 2/28 for Nova (the
+2026-10-12 methodology line above).

@@ -35,6 +35,23 @@ is true for NIOSH specifically, not across the board.
 - **Why the array can't show it:** the structured array lists the retrieved pages of both documents, so it can't
   show that the inline attribution is wrong.
 
+**An answer that contains the refusal sentence but is not it is served at high confidence** (G11, recorded
+2026-10-12).
+- **The mechanism.** `api/confidence.py`'s `is_refusal` is whole-answer equality, by design, so that "a partial answer,
+  then the refusal sentence" never counts as a refusal.
+  - The design was right about what not to call a refusal, and silent about what to call it instead.
+  - Such an answer is scored 0.9, "high: answer generated from retrieved context", and `api/citations.py` cites every
+    retrieved page.
+- **Observed on frozen row 25 under the `/ask` path's contexts** (G11's P6):
+  - 3/3 on Nova 2 Lite, and 0/3 on `gpt-4o-mini`, which returned the exact sentence;
+  - across the 84 agent-path answers per arm, 0 in either arm.
+  - Each Nova answer said the Sigma-Aldrich SDS excerpt lacks the flash point, gave the NIOSH Pocket Guide's 0°F, and
+    ended with the exact sentence. The output guard passed all three.
+  - So a question scoped to one document is served another document's value at high confidence.
+- **Not a property of one provider.** It applies to any model that hedges, a future OpenAI model included.
+- **The fix needs its own gate.** A "hedged" tier at low confidence would change `api/confidence.py`, which `/ask`, the
+  default path, shares. Not done in G11 ([`g11_PREDICTION.md`](g11_PREDICTION.md), P6).
+
 **2D candidate (backlog, deferred).** Rank-weight / trim the citation array toward the chunks the
 answer actually grounds on, or reconcile inline ↔ array. Not done now; `citations.py` is untouched.
 Because the answer and its inline attribution are correct, this is a provenance-surface cleanup, not
@@ -43,6 +60,21 @@ a ship-blocker or a promotion concern.
 Near-empty table-of-contents chunks can outrank content: the G5 tier-1 demo query's rank-1 hit was a
 47-character ToC fragment (controls-hazardous-energies p3). Observed 2026-10-02 via search_safety_docs; not
 measured on the frozen 28; chunking backlog, not G5.
+
+The NIOSH Pocket Guide's two-column exposure limits are flattened in extraction.
+- **On `niosh-pocket-guide page=45`** (anhydrous ammonia), the chunk puts the NIOSH REL's "ST 35 ppm" continuation line
+  after the OSHA PEL. In the PDF it sits in the NIOSH REL column, judged by its x-position against another entry on the
+  same page.
+- **The effect:** on frozen row 11, `gpt-4o-mini` attributed that short-term limit to OSHA in 3/3 trials and was scored
+  faithfulness 1.00.
+- **Observed** 2026-10-12, in G11's post-hoc reading. The extent across the guide is not measured. Chunking backlog,
+  not G11.
+
+**Chunking backlog** (collected here; each item stays recorded where it was found):
+- near-empty table-of-contents chunks outranking content (G5; the note above);
+- chunk hygiene for OSHA Table Z-1's raw "(C)1 (C)3" line (G12, untested; the G12 section below);
+- the NIOSH Pocket Guide's flattened two-column limits (G11; the note above): faithfulness is scored against the chunk,
+  so a flattened two-column page rewards the wrong attribution.
 
 ## G1 tool loop — what it is and is not shown to do
 Recorded 2026-09-23 from the G1 closure (`eval/g1_closure_probe.md`, `eval/g1_closure_PREDICTION.md`
@@ -135,6 +167,8 @@ measurement is recorded in the ledger's methodology block (METRICS_HISTORY.md).
     URLs live in PR bodies.
   - **UUIDs:** RFC 4122 UUIDs are caught by their 8- and 12-character hex groups, so G10b's review thread ids are
     written in upper case, which RFC 4122 allows.
+  - **AWS case IDs:** the 15-digit AWS support-case numbers are all digits, so they read as hex. G11 keeps them in
+    [`g11_aws_gates.txt`](g11_aws_gates.txt), which the guard doesn't scan (it reads `*.md` only).
   - **The candidate improvement, not done here:** exempt `/actions/runs/<id>` URLs and RFC 4122 UUIDs in
     `scripts/check_doc_citations.py`, with a test.
 
@@ -416,3 +450,57 @@ uvicorn worker the Dockerfile runs. Several workers or instances would need a da
 **Tests run with the trigger off by default** (`tests/conftest.py`), so existing tests exercise the non-firing path;
 `tests/test_review.py` switches the real policy on. The G9 smoke and `run_eval.py` run with no checkpointer, where
 non-firing rows are unchanged; row 24, the smoke's `/ask/agent` row, never fires.
+
+## G11 provider seam — what it is and is not shown to do
+Recorded 2026-10-12.
+- **Sources:**
+  - the design is [`g11_design.md`](g11_design.md);
+  - the pre-registration and its outcome are in [`g11_PREDICTION.md`](g11_PREDICTION.md), whose pre-registration
+    commit is tagged `prereg/g11` at PR time;
+  - the run is in the G11 block of [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
+- **Rows are 1-based.**
+
+**What it is.** `agent/generation.py` puts the agent path's generation behind `GENERATION_PROVIDER`.
+- `openai`, the default, is the frozen `src.generate.generate` itself, so its request body is byte-identical to the
+  pre-G11 one on all 28 questions (P1).
+- `bedrock` sends the same two messages to Amazon Nova 2 Lite (`us.amazon.nova-2-lite-v1:0`, us-east-1) through
+  Bedrock's Converse API, with boto3.
+
+**Bedrock is measured and not recommended.** It fails the pre-registered shipping rule (P7) on all three counts:
+- **per-row quality (P3):** faithfulness fell on 9/28 rows and answer correctness on 8/28, though both aggregates held;
+- **refusal (P6):** 0/3 exact refusals, so its hedged answer is served at high confidence (the citation-layer entry
+  above). **P6 is the blocker;**
+- **cost:** 2.54× per answer at p50 ($0.00294 against $0.00116).
+
+**What Bedrock cannot record.**
+- Converse returns no `system_fingerprint` and no model version, and Nova has no seed parameter.
+- Recorded instead: the requested profile id (its only version signal), the AWS request id, `latencyMs`, `stopReason`
+  and token usage. `serviceTier` came back absent on 84/84 calls.
+- Without a seed, Nova's three answers were byte-identical on 2/28 rows (`gpt-4o-mini`: 10/28).
+
+**Only generation moves.**
+- The router, the tool decision, the decomposer (off), the input-guard classifier (off), the judge and the embeddings
+  stay on OpenAI.
+- `/ask` (`src/`) stays on OpenAI by design. A deployment without an OpenAI key is not possible from this seam.
+
+**Nova's inline citations differ.** It used the exact `source_doc_id=` marker in 18–22 of 28 answers per trial
+(`gpt-4o-mini`: 28/28) and cited no doc id at all in 2–5. Structured citations are unaffected, because they derive from
+chunk metadata.
+
+**Row 21 misattributes differently.** Nova cites `osha-1910-1000 page=52` for the chlorine ceiling, a page that doesn't
+carry it (3/3). `gpt-4o-mini` cites the NIOSH page instead (3/3, the G9 instance in the citation-layer section above).
+
+**AWS account gates,** recorded 2026-10-12, verbatim in [`g11_aws_gates.txt`](g11_aws_gates.txt):
+- **Anthropic models:** the Marketplace subscription is active, but the applied on-demand quota is 0, and the increase
+  request was routed to AWS Sales as above the support threshold. Not obtainable inside the time box.
+- **Claude Haiku 5.5** is not available to this account tier at all.
+- **Nova 2 Lite** carries its default quota, 20 RPM. The eval held 15 RPM or less, with 0 throttles.
+
+**No `langchain-aws`.** Its last line compatible with `langchain-core` 0.3 (0.2.35) requires `numpy<2` on Python 3.11,
+and a dry resolve downgraded numpy 2.4.6 → 1.26.4 project-wide. The adapter is boto3 only (`boto3==1.43.103`), imported
+only when Bedrock is selected.
+
+**Credentials stay local.** The AWS keys live in `.env` only (the names are in [`.env.example`](../.env.example)), not
+in repository secrets and not in `render.yaml`. The deployed service cannot select Bedrock, and CI never calls it.
+
+**Not deployed to AWS.** Render stays the host; an AWS deployment was out of scope.
