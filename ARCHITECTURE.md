@@ -124,7 +124,10 @@ router → {direct: retrieve | source_scoped: source_scoped_retrieve} → tool_d
 - **source_scoped_retrieve** metadata-filters retrieval to that one document, and on a filter failure
   *or* an empty result falls back to the full-corpus query (and reports the route it actually ran).
 - **tool_decide ⇄ tool_exec** is the **G1 bounded tool loop** (see below), capped and with per-tool
-  timeouts; when no tool is needed it passes straight to `generate`.
+  timeouts; when no tool is needed it passes to `review_gate`, which is a no-op unless its trigger fires, and then
+  to `generate`. **[corrected 2026-10-12: was 'when no tool is needed it passes straight to `generate`'; the record
+  shows the no-tool edge goes to `review_gate` (`agent/graph.py`, `_build_graph`; `tests/test_agent_graph.py`,
+  `SHIPPED_EDGES`)]**
 - **review_gate → review_wait** is the **G10b approval gate**.
   - It fires on a pre-registered policy on the question's wording, or on a source-scoped fallback; when it doesn't
     fire it is a no-op.
@@ -314,6 +317,16 @@ uv run python scripts/smoke_test.py          # quick end-to-end sanity check of 
 ```
 
 The live-service `curl` example (a deployed instance you can hit without any setup) is in the
-**Live demo** section of [`README.md`](README.md). Runtime knobs (retrieval namespace/depth, the
-pipeline selector, tool-loop cap/timeout) and their **defaults** live in
-[`src/config.py`](src/config.py) — read them there rather than trusting a copied table.
+**Live demo** section of [`README.md`](README.md). Runtime knobs and their **defaults** live where
+they are read — read them there rather than trusting a copied table:
+- retrieval namespace and depth (`RETRIEVAL_NAMESPACE`, `RETRIEVAL_K`): [`src/config.py`](src/config.py);
+- the pipeline selector (`PIPELINE`): [`eval/run_eval.py`](eval/run_eval.py);
+- the tool-loop cap and timeout (`AGENT_TOOL_MAX_ITERATIONS`, `AGENT_TOOL_TIMEOUT_S`):
+  [`agent/graph.py`](agent/graph.py);
+- the generation provider (`GENERATION_PROVIDER`, `BEDROCK_MODEL_ID`, `AWS_REGION`):
+  [`agent/generation.py`](agent/generation.py);
+- the review store and its TTL (`REVIEW_DB_PATH`, `REVIEW_TTL_S`): [`agent/review.py`](agent/review.py).
+
+**[corrected 2026-10-12: was 'Runtime knobs (retrieval namespace/depth, the pipeline selector, tool-loop
+cap/timeout) and their defaults live in src/config.py'; the record shows only namespace and depth live there, and
+each other knob is read in the file listed above]**

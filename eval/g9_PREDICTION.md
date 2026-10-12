@@ -198,8 +198,10 @@ T1 set equality held on 8 rows in each of 5 runs (48/48 including PR run #5).
    input.
 2. Run #10, row 24, T2: **noise.** The same answer B.
 
-That is **2 noise reds in 6 gated runs** (#5–#10), so the registered rule fires: the check is demoted to reported-only,
-and the threshold is to be re-derived from accumulated runs. The running list continues in
+That is **2 noise reds in the first seven gated runs** (#5–#10 and #13), so the registered rule fires: the check is
+demoted to reported-only, and the threshold is to be re-derived from accumulated runs. **[corrected 2026-10-12: was
+'2 noise reds in 6 gated runs (#5–#10)', accurate when written a minute before run #13; the record shows the G9
+window closed at seven gated runs, #5–#10 and #13, and #13 was green (`eval/METRICS_HISTORY.md`, the G9 run table)]** The running list continues in
 [`METRICS_HISTORY.md`](METRICS_HISTORY.md)'s G9 block.
 
 **Spend so far:** about $0.14, comprising:
@@ -328,6 +330,8 @@ Every breach ciphertext from #15–#17 and #20 (6 files) decrypted with the off-
 reported `answer_sha256`. No plaintext answer appeared in any downloaded artifact.
 
 ### The demotion window and the required check
-- **G9b's window so far:** 6 gated runs (#14–#19), 0 reds. The diagnostic runs and the negative proof are outside it.
+- **G9b's window:** 0 reds in the first seven gated runs (#14–#19 and #26). The diagnostic runs and the negative proof
+  are outside it. **[corrected 2026-10-12: was 'G9b's window so far: 6 gated runs (#14–#19), 0 reds', accurate when
+  written; the record shows run #26 joined the window, green (`eval/METRICS_HISTORY.md`, the G9b window)]**
 - **The required check:** P1b and P2b hold, so `eval-smoke / smoke` (and `gate`) may become required checks. The
   maintainer turns that on; the agent doesn't change branch protection.
