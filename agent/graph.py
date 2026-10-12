@@ -13,19 +13,28 @@ the thread's checkpoint (a SqliteSaver, one fresh uuid4 thread per ask()) holds 
 approves, rejects or amends it through /ask/agent/resume, or the TTL resolves it as rejected. With no checkpointer
 configured, a firing question is refused, never answered unreviewed.
 
-G12 is BUILT, MEASURED and SWITCHED OFF (FANOUT_ENABLED = False): the shipped graph is the pre-G12 one, and the bracketed
-fan-out path above exists only in the enabled build (eval/g12_PREDICTION.md, Outcome). It is a DISPATCH-AND-AGGREGATE
+G12 is BUILT, MEASURED and SWITCHED OFF (FANOUT_ENABLED = False): the shipped graph is the pre-G12 topology plus
+G10b's review gate, and the bracketed fan-out path above exists only in the enabled build (eval/g12_PREDICTION.md,
+Outcome). [corrected 2026-10-12: was 'the shipped graph is the pre-G12 one'; the record shows G10b, merged after G12,
+added review_gate and review_wait to the shipped topology (tests/test_agent_graph.py, SHIPPED_NODES)] It is a DISPATCH-AND-AGGREGATE
 node, not a hierarchy of agents: a deterministic wording gate sends comparison-worded
 direct questions to one decomposer call; 2-3 sub-questions are dispatched concurrently with LangGraph's `Send`, each
 branch runs ONE retrieval (source-scoped when the sub-question names a document), and `join_node` rank-interleaves
 the surviving branches, dedups by `chunk_content_key`, and writes `retrieved` once. Anything the gate or decomposer
 declines takes today's single-query path unchanged. Design and degradation contract: eval/g12_design.md.
 
-G1 adds the tool loop between retrieval and generation. `generate_node` and `src.generate.generate` are
-UNTOUCHED (the v4 byte-repro path). Because generate grounds ONLY on `retrieved`, a tool output reaches the
+G1 adds the tool loop between retrieval and generation. The generation REQUEST is unchanged: `src.generate.generate`
+is untouched, and the request body generate_node sends is byte-identical (tests/test_generation.py), although G8
+added routing and cost lines to `generate_node` and G11 routed it through the provider seam (the v4 byte-repro path).
+Because generate grounds ONLY on `retrieved`, a tool output reaches the
 answer solely by `tool_exec` appending a synthetic labeled chunk (source_doc_id="tool:<name>", page=None) to
 `retrieved` — which also keeps the answer traceable to a tool output. A no-tool question passes tool_decide
-straight to generate with `retrieved` unchanged, so the direct path still byte-reproduces v4.
+to review_gate, a no-op unless its trigger fires, and then to generate with `retrieved` unchanged, so the direct
+path still byte-reproduces v4.
+[corrected 2026-10-12: was '`generate_node` and `src.generate.generate` are UNTOUCHED'; the record shows generate_node
+changed in G8 and G11 while its request body did not (tests/test_generation.py)]
+[corrected 2026-10-12: was 'A no-tool question passes tool_decide straight to generate'; the record shows the no-tool
+edge goes to review_gate (agent/graph.py, _build_graph)]
 
 The 2A skeleton this grew from: prove the
 LangGraph plumbing + tracing reproduce v4 BEFORE adding any intelligence. `agent/` is the
@@ -183,7 +192,9 @@ MAX_BRANCHES = 3
 # G12 ships SWITCHED OFF. The fan-out is built and measured, but on the four comparison rows it was slower (+1.98 s
 # p50) and two answers got worse (row 9's correctness, and an unregistered drop on row 21): eval/g12_PREDICTION.md,
 # Outcome. With the flag off, `_build_graph` leaves the decompose/branch/join nodes OUT of the compiled graph, so the
-# shipped graph has the pre-G12 topology exactly; turning it on needs a new pre-registration.
+# shipped graph has the pre-G12 topology plus G10b's review gate; turning it on needs a new pre-registration.
+# [corrected 2026-10-12: was 'the shipped graph has the pre-G12 topology exactly'; the record shows G10b added
+# review_gate and review_wait after G12 (tests/test_agent_graph.py, SHIPPED_NODES)]
 FANOUT_ENABLED = False
 
 
@@ -441,7 +452,10 @@ def generate_node(state: AgentState) -> dict:
 
 # ---- G1 tool-calling loop (tool_decide -> tool_exec, conditional; see module docstring) ----------
 # Two nodes + a conditional edge (not one internal-loop node) so EACH iteration is a visible super-step in
-# the trace — the observability story, and what a future checkpointer (G10b) will resume on.
+# the trace — the observability story. G10b's checkpointer pauses after the loop, at review_wait, and persists
+# only at exit or interrupt, so it never resumes inside the loop.
+# [corrected 2026-10-12: was 'and what a future checkpointer (G10b) will resume on'; the record shows G10b pauses at
+# review_wait with durability "exit" (eval/g10b_design.md)]
 CAP = int(os.environ.get("AGENT_TOOL_MAX_ITERATIONS", "3"))          # hard loop bound (§5)
 TOOL_TIMEOUT_S = float(os.environ.get("AGENT_TOOL_TIMEOUT_S", "5"))  # per-tool wall-clock guard
 
@@ -503,11 +517,14 @@ def _route_tools(state: AgentState) -> str:
 
 
 def _tool_chunk(name: str, args: dict, result: dict) -> dict:
-    """A synthetic, SELF-DESCRIBING context chunk so the FROZEN generate_node grounds on the tool output.
-    `page=None` so api/citations.py's provenance-skip excludes it (a tool output is a transformation of a
+    """A synthetic, SELF-DESCRIBING context chunk so generate_node grounds on the tool output with its request
+    unchanged. `page=None` so api/citations.py's provenance-skip excludes it (a tool output is a transformation of a
     cited source, not a source). NOTE: the 'COMPUTED ... not a document quote' marker does NOT prevent the
     model from citing the chunk in prose (observed 5/5 on the source-scoped acetone row,
-    eval/g1_closure_probe.md); structured citations exclude it via page=None regardless."""
+    eval/KNOWN_LIMITATIONS.md, the G1 tool-loop section); structured citations exclude it via page=None regardless.
+    [corrected 2026-10-12: was 'so the FROZEN generate_node' and 'eval/g1_closure_probe.md'; the record shows
+    generate_node changed in G8 and G11 with its request body unchanged, and the 5/5 finding is recorded in
+    eval/KNOWN_LIMITATIONS.md, not in the probe file]"""
     text = (
         f"COMPUTED by {name} — not a document quote.\n"
         f"args={json.dumps(args, default=str)} -> {json.dumps(result, default=str)}\n"
@@ -590,14 +607,18 @@ def _compiled_graph():
 @lru_cache(maxsize=8)
 def _build_graph(fanout: bool, checkpointer=None):
     """Build + compile the graph once per variant (stateless; state is per-invoke). With fanout=False the G12 nodes
-    and edges are not added at all, so the compiled topology is exactly the pre-G12 one.
+    and edges are not added at all, so the compiled topology is the pre-G12 one plus G10b's review gate.
     START → router → (source_scoped) source_scoped_retrieve | (direct) retrieve
                    | (comparison-worded, G12) decompose → Send × N → branch_retrieve → join [or → retrieve]
-          → tool_decide ⇄ tool_exec (G1 loop) → generate → END.
+          → tool_decide ⇄ tool_exec (G1 loop) → review_gate → [review_wait] → generate → END.
     The tool loop sits BETWEEN retrieval and generation and is conditional: a question needing no tool passes
-    tool_decide straight to generate, so the direct path byte-reproduces v4 (generate_node and its inputs are
-    untouched on the no-tool path). Two nodes (not one internal loop) so each iteration is a visible
-    super-step for tracing + future checkpointing (G10b)."""
+    tool_decide to review_gate (a no-op unless its trigger fires) and then to generate, so the direct path
+    byte-reproduces v4 (generate's request is unchanged on the no-tool path). Two nodes (not one internal loop)
+    so each iteration is a visible super-step for tracing.
+    [corrected 2026-10-12: was 'exactly the pre-G12 one', '→ tool_decide ⇄ tool_exec (G1 loop) → generate → END',
+    'passes tool_decide straight to generate' and 'for tracing + future checkpointing (G10b)'; the record shows the
+    no-tool edge goes to review_gate, and G10b checkpoints only at exit or interrupt (this function's edges;
+    tests/test_agent_graph.py, SHIPPED_EDGES)]"""
     builder = StateGraph(AgentState)
     builder.add_node("router", router_node)
     builder.add_node("retrieve", retrieve_node)

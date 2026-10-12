@@ -1,5 +1,7 @@
 # Keep the build context small AND keep secrets / copyrighted material out of the image.
-# The Dockerfile COPYs only pyproject.toml, uv.lock, src/, api/, and data/manifest.json.
+# The Dockerfile COPYs only pyproject.toml, uv.lock, src/, api/, agent/, mcp_server/ and data/manifest.json.
+# [corrected 2026-10-12: was 'pyproject.toml, uv.lock, src/, api/, and data/manifest.json'; the record shows the
+# Dockerfile also copies agent/ and mcp_server/ (Dockerfile, the COPY lines)]
 
 .git
 .gitignore
