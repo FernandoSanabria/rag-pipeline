@@ -22,6 +22,7 @@ from functools import lru_cache
 
 from langsmith import traceable
 
+from agent import cost
 from src import generate as frozen
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,8 @@ def generate_with(client, question: str, contexts: list[str], model_id: str | No
         "output_tokens": usage.get("outputTokens"),
         "cache_read_tokens": usage.get("cacheReadInputTokens"),
     })
+    cached = usage.get("cacheReadInputTokens") or 0  # G8: the request's cost record (a no-op outside a request)
+    cost.add_call(None, model_id, (usage.get("inputTokens") or 0) + cached, cached, usage.get("outputTokens") or 0)
     if not text:
         logger.warning("bedrock generation returned no text (stopReason=%s)", response.get("stopReason"))
     return text or ""

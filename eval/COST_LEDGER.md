@@ -13,9 +13,11 @@ measured token count × a published list price). List prices used for derivation
 | `text-embedding-3-small` | $0.02 / 1M | — | — |
 | `text-embedding-ada-002` | $0.10 / 1M | — | — |
 | Amazon Nova 2 Lite (Bedrock, the `us.` profile) | $0.33 / 1M | $0.0825 / 1M (cache read) | $2.75 / 1M |
+| Amazon Nova Micro (Bedrock, the `us.` profile) | $0.035 / 1M | $0.00875 / 1M (cache read) | $0.14 / 1M |
 
 Nova 2 Lite's prices (G11) come from the AWS Price List API (`AmazonBedrock`, us-east-1, publication 2026-10-10). They
-are the in-region standard rate, which is what the `us.` cross-region profile is billed at.
+are the in-region standard rate, which is what the `us.` cross-region profile is billed at. Nova Micro's (G8) come from
+the same publication. `agent/cost.py`'s `PRICES` holds these rows as data, and `tests/test_cost.py` asserts they match.
 
 ## Provenance
 - **OpenAI usage dashboard** — read 2026-08-08, range 2026-07-01 → 2026-08-08. Gives totals and

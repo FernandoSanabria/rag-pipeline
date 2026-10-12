@@ -78,7 +78,7 @@ from langgraph.types import Command, Send, interrupt
 from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from agent import review
+from agent import cost, generation, review, routing
 from agent.state import AgentState, RemoveChunk, chunk_content_key, chunk_key, fresh_state
 from agent.tools import TOOL_SCHEMAS, ToolError, run_tool
 from src.config import get_settings
@@ -156,7 +156,8 @@ def router_node(state: AgentState) -> dict:
     (incl. the shipped IDLH row) stay DIRECT so a single-doc filter can't halve the answer."""
     question = state["question"]
     try:
-        d = _router_llm().invoke(_router_prompt(question))
+        with cost.phase("router"):
+            d = _router_llm().invoke(_router_prompt(question))
         if d.source_scoped and d.source_doc_id in _known_doc_ids():
             return {"route": "source_scoped", "source_doc_id": d.source_doc_id,
                     "trace_notes": [f"router: source_scoped -> {d.source_doc_id}"]}
@@ -241,7 +242,8 @@ def decompose_node(state: AgentState) -> dict:
     question = state["question"]
     started = time.monotonic()
     try:
-        d = _decomposer_llm().invoke(DECOMPOSER_PROMPT.format(catalog=_doc_catalog(), question=question))
+        with cost.phase("decompose"):
+            d = _decomposer_llm().invoke(DECOMPOSER_PROMPT.format(catalog=_doc_catalog(), question=question))
     except Exception as exc:  # never abort — fall back to the single-query path
         logger.warning("decompose_node error: %s", type(exc).__name__)
         return {"sub_questions": [], "trace_notes": [f"decompose: ERROR {type(exc).__name__} -> single-query"]}
@@ -292,6 +294,7 @@ def branch_retrieve_node(payload: dict) -> dict:
         if doc and doc not in _known_doc_ids():  # only reachable by injection: decompose already validated ids
             raise ValueError(f"unknown source_doc_id {doc!r}")
         chunks = dense_search(question, k=k, source_doc_id=doc) if doc else dense_search(question, k=k)
+        cost.add_embedding(question)  # G8: one query embedding per retrieval
     except Exception as exc:  # a failed branch is a record, never an abort
         logger.warning("branch_retrieve[%d/%d] error: %s", i, n, type(exc).__name__)
         error = type(exc).__name__
@@ -350,6 +353,7 @@ def source_scoped_retrieve_node(state: AgentState) -> dict:
     doc = state["source_doc_id"]
     try:
         retrieved = dense_search(question, k=k, source_doc_id=doc)
+        cost.add_embedding(question)  # G8: one query embedding per retrieval, even when 0 chunks match
         if retrieved:
             note = f"retrieve[source_scoped:{doc}]: dense_search(k={k}, ns={ns}) -> {len(retrieved)} chunks"
             return {"retrieved": retrieved, "trace_notes": [note]}
@@ -359,6 +363,7 @@ def source_scoped_retrieve_node(state: AgentState) -> dict:
         reason = f"retrieve[source_scoped:{doc}]: ERROR {type(exc).__name__}: {exc} -> direct fallback"
     try:
         retrieved = dense_search(question, k=k)  # unfiltered = the v4 direct path
+        cost.add_embedding(question)
         note = f"retrieve[direct-fallback]: dense_search(k={k}, ns={ns}) -> {len(retrieved)} chunks"
         return {"retrieved": retrieved, "route": "direct", "source_doc_id": "",
                 "trace_notes": [reason, note]}
@@ -380,6 +385,7 @@ def retrieve_node(state: AgentState) -> dict:
     k = settings.retrieval_k  # settings-driven depth — never hardcode 10 (breaks the A/B override)
     try:
         retrieved = dense_search(question, k=k)
+        cost.add_embedding(question)  # G8: one query embedding per retrieval
         note = f"retrieve[{state['route']}]: dense_search(k={k}, ns={settings.retrieval_namespace}) -> {len(retrieved)} chunks"
         return {"retrieved": retrieved, "trace_notes": [note]}
     except Exception as exc:  # never abort the run / drop a row
@@ -396,6 +402,10 @@ def generate_node(state: AgentState) -> dict:
 
     Builds contexts with the SAME format_contexts the entry adapter returns, so the graded text
     equals the text the model saw (byte-identical to pipeline.ask).
+
+    G8: when routing is enabled (agent/routing.py; it ships off), an eligible request generates with the routing
+    policy's cheap model through the G11 seam's `generate_with`. The request's cost record so far, whose last billable
+    call is this one, is appended to trace_notes.
     """
     question = state["question"]
     # Short-circuit on a caught retrieval exception: mirror pipeline.ask, which never calls
@@ -405,8 +415,19 @@ def generate_node(state: AgentState) -> dict:
     if state["retrieval_error"]:
         return {"answer": "", "trace_notes": ["generate[skipped]: retrieval_error -> answer_len=0"]}
     contexts = format_contexts(state["retrieved"])
+    routed, why = routing.eligible(state) if routing.enabled() else (False, "off")
+    if routed:
+        routing_note = f"routing: eligible -> {routing.CHEAP_MODEL}"
+    else:
+        routing_note = "routing: off" if why == "off" else f"routing: not eligible ({why})"
+    cost.annotate(routing="routed" if routed else ("off" if why == "off" else "not_eligible"))
     try:
-        answer = generate(question, contexts)
+        with cost.phase("generate"):
+            if routed:
+                answer = generation.generate_with(generation.bedrock_client(), question, contexts,
+                                                  model_id=routing.CHEAP_MODEL)
+            else:
+                answer = generate(question, contexts)
         if not answer:  # mirror pipeline.ask: empty generation -> scoreable empty answer
             logger.warning("generate_node empty answer for %r", question)
             answer = ""
@@ -415,7 +436,7 @@ def generate_node(state: AgentState) -> dict:
         logger.warning("generate_node error for %r: %s", question, exc)
         answer = ""
         note = f"generate: ERROR {type(exc).__name__}: {exc} -> answer_len=0"
-    return {"answer": answer, "trace_notes": [note]}
+    return {"answer": answer, "trace_notes": [note, routing_note, cost.trace_note()]}
 
 
 # ---- G1 tool-calling loop (tool_decide -> tool_exec, conditional; see module docstring) ----------
@@ -464,7 +485,8 @@ def tool_decide_node(state: AgentState) -> dict:
         return {"tool_calls": [], "trace_notes": [f"tool_decide: CAP_REACHED ({CAP} iterations) -> generate"]}
     try:
         contexts = format_contexts(state["retrieved"])
-        resp = _tool_llm().invoke(_tool_prompt(state["question"], contexts, state["tool_results"]))
+        with cost.phase("tool_decide"):
+            resp = _tool_llm().invoke(_tool_prompt(state["question"], contexts, state["tool_results"]))
         calls = list(getattr(resp, "tool_calls", []) or [])
     except Exception as exc:  # never abort — a decide failure just means no tools this run
         logger.warning("tool_decide error for %r: %s", state["question"], exc)
