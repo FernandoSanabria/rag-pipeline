@@ -1,0 +1,190 @@
+{
+  "timestamp_utc": "20261012T155310Z",
+  "source_run": "20261012T153609Z",
+  "registered": false,
+  "rows": [
+    22,
+    23,
+    24,
+    25
+  ],
+  "trials": 3,
+  "summary": {
+    "nova_micro": {
+      "n": 12,
+      "wall_s_p50": 0.67,
+      "wall_s_range": [
+        0.542,
+        1.178
+      ],
+      "latency_ms_p50_server": 496.0
+    },
+    "gpt-4o-mini": {
+      "n": 12,
+      "wall_s_p50": 1.0365,
+      "wall_s_range": [
+        0.912,
+        1.891
+      ]
+    }
+  },
+  "bedrock_retries": {},
+  "calls": [
+    {
+      "trial": 1,
+      "row": 22,
+      "arm": "nova_micro",
+      "wall_s": 0.972,
+      "latency_ms": 519
+    },
+    {
+      "trial": 1,
+      "row": 22,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.891
+    },
+    {
+      "trial": 1,
+      "row": 23,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.013
+    },
+    {
+      "trial": 1,
+      "row": 23,
+      "arm": "nova_micro",
+      "wall_s": 1.178,
+      "latency_ms": 1083
+    },
+    {
+      "trial": 1,
+      "row": 24,
+      "arm": "nova_micro",
+      "wall_s": 0.953,
+      "latency_ms": 845
+    },
+    {
+      "trial": 1,
+      "row": 24,
+      "arm": "gpt-4o-mini",
+      "wall_s": 0.934
+    },
+    {
+      "trial": 1,
+      "row": 25,
+      "arm": "gpt-4o-mini",
+      "wall_s": 0.912
+    },
+    {
+      "trial": 1,
+      "row": 25,
+      "arm": "nova_micro",
+      "wall_s": 0.633,
+      "latency_ms": 472
+    },
+    {
+      "trial": 2,
+      "row": 22,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.026
+    },
+    {
+      "trial": 2,
+      "row": 22,
+      "arm": "nova_micro",
+      "wall_s": 0.682,
+      "latency_ms": 587
+    },
+    {
+      "trial": 2,
+      "row": 23,
+      "arm": "nova_micro",
+      "wall_s": 0.581,
+      "latency_ms": 483
+    },
+    {
+      "trial": 2,
+      "row": 23,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.047
+    },
+    {
+      "trial": 2,
+      "row": 24,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.238
+    },
+    {
+      "trial": 2,
+      "row": 24,
+      "arm": "nova_micro",
+      "wall_s": 0.865,
+      "latency_ms": 772
+    },
+    {
+      "trial": 2,
+      "row": 25,
+      "arm": "nova_micro",
+      "wall_s": 0.542,
+      "latency_ms": 447
+    },
+    {
+      "trial": 2,
+      "row": 25,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.084
+    },
+    {
+      "trial": 3,
+      "row": 22,
+      "arm": "nova_micro",
+      "wall_s": 0.679,
+      "latency_ms": 491
+    },
+    {
+      "trial": 3,
+      "row": 22,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.226
+    },
+    {
+      "trial": 3,
+      "row": 23,
+      "arm": "gpt-4o-mini",
+      "wall_s": 0.927
+    },
+    {
+      "trial": 3,
+      "row": 23,
+      "arm": "nova_micro",
+      "wall_s": 0.597,
+      "latency_ms": 501
+    },
+    {
+      "trial": 3,
+      "row": 24,
+      "arm": "nova_micro",
+      "wall_s": 0.661,
+      "latency_ms": 462
+    },
+    {
+      "trial": 3,
+      "row": 24,
+      "arm": "gpt-4o-mini",
+      "wall_s": 1.131
+    },
+    {
+      "trial": 3,
+      "row": 25,
+      "arm": "gpt-4o-mini",
+      "wall_s": 0.979
+    },
+    {
+      "trial": 3,
+      "row": 25,
+      "arm": "nova_micro",
+      "wall_s": 0.584,
+      "latency_ms": 489
+    }
+  ]
+}

@@ -321,6 +321,47 @@ def deps_model(state):
     return state.get("cheap_model")
 
 
+def latency(raw_path: Path, out_path: Path, trials: int = TRIALS) -> dict:
+    """Supplementary, not registered (eval/g8_design.md R4: "recorded, with no falsifier"). The run itself did not time
+    Bedrock calls, so this times generation on the eligible rows' stored contexts from a run's raw file: Nova Micro
+    through generate_with (the successful Converse call's client-side wall time, spacer excluded, plus Bedrock's
+    latencyMs) and gpt-4o-mini through the frozen generator, interleaved, `trials` per row and arm."""
+    import src.generate as frozen
+    from agent import generation, routing
+
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    rows = pe._rows()
+    contexts = {r["row"]: r["contexts"] for r in raw["pass_b"]
+                if r["row"] in ELIGIBLE and r["arm"] == "baseline" and r["trial"] == 1}
+    bedrock = pe.BedrockForEval()
+    calls = []
+    for trial in range(1, trials + 1):
+        for n in ELIGIBLE:
+            question = rows[n - 1]["question"]
+            for arm in (("nova_micro", "gpt-4o-mini") if (n + trial) % 2 else ("gpt-4o-mini", "nova_micro")):
+                if arm == "nova_micro":
+                    generation.generate_with(bedrock, question, contexts[n], model_id=routing.CHEAP_MODEL)
+                    calls.append({"trial": trial, "row": n, "arm": arm, "wall_s": round(bedrock.last_call_s, 3),
+                                  "latency_ms": generation.calls()[-1]["latency_ms"]})
+                else:
+                    started = time.perf_counter()
+                    frozen.generate(question, contexts[n])
+                    calls.append({"trial": trial, "row": n, "arm": arm,
+                                  "wall_s": round(time.perf_counter() - started, 3)})
+    summary = {}
+    for arm in ("nova_micro", "gpt-4o-mini"):
+        walls = [c["wall_s"] for c in calls if c["arm"] == arm]
+        summary[arm] = {"n": len(walls), "wall_s_p50": statistics.median(walls), "wall_s_range": [min(walls), max(walls)]}
+    ms = [c["latency_ms"] for c in calls if c.get("latency_ms") is not None]
+    summary["nova_micro"]["latency_ms_p50_server"] = statistics.median(ms) if ms else None
+    result = {"timestamp_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"), "source_run": raw["started_at"],
+              "registered": False, "rows": list(ELIGIBLE), "trials": trials, "summary": summary,
+              "bedrock_retries": dict(bedrock.retries), "calls": calls}
+    out_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(summary, indent=2))
+    return result
+
+
 def run(rows, row_numbers, trials) -> dict:
     import httpx
 
@@ -408,10 +449,15 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=METRICS_PATH)
     parser.add_argument("--raw-dir", type=Path, default=RESULTS_DIR)
     parser.add_argument("--judge-from", type=Path, help="a raw file to resume judging from (no generation)")
+    parser.add_argument("--latency-from", type=Path,
+                        help="a raw file: time generation on its eligible rows' contexts (supplementary, unregistered)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
     rows = pe._rows()
+    if args.latency_from:
+        latency(args.latency_from, REPO_ROOT / "eval" / "cost_latency.json")
+        return
     if args.judge_from:
         state = json.loads(args.judge_from.read_text(encoding="utf-8"))
         raw_path = args.judge_from
