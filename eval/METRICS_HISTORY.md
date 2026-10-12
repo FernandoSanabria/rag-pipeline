@@ -603,3 +603,59 @@ The demotion rule stays registered.
 
 **Determinism:** byte-identical answers across the three trials on 10/28 rows for OpenAI and 2/28 for Nova (the
 2026-10-12 methodology line above).
+
+## G8 cost control (recorded 2026-10-12): accounting holds; routing measured and kept off; cache measured, not built
+- **Sources:**
+  - the design is [`g8_design.md`](g8_design.md);
+  - the pre-registration and its outcome are in [`g8_PREDICTION.md`](g8_PREDICTION.md);
+  - the derived metrics are in [`cost_metrics.json`](cost_metrics.json), and the supplementary latency in
+    [`cost_latency.json`](cost_latency.json);
+  - the runner is [`cost_eval.py`](../scripts/cost_eval.py), in-process, 2026-10-12 15:36–15:50 UTC.
+- **What was measured:**
+  - **the build:** `bdd85c9`, tagged `evidence/g8-build`;
+  - **Pass A (accounting):** routing OFF, nothing memoized, 28 rows × 3 trials, each request's cost record checked
+    against independent captures;
+  - **Pass B (routing):** baseline against routed (policy A, Nova Micro on eligible rows), interleaved, with the
+    embedding, router and tool decisions memoized and shared;
+  - **P6:** row 25 under `/ask` contexts.
+  - The G10b review trigger was switched off for the run.
+- **"Fingerprints"** (generation):
+  - `gpt-4o-mini-2024-07-18`: `fp_0961e0f740` ×236 and `fp_412505125b` ×7;
+  - Nova Micro: Converse returns no fingerprint, so the requested profile id `us.amazon.nova-micro-v1:0` stands in;
+  - the judge: 120 calls across four fingerprints.
+- **Rows are 1-based; N=3 trials per arm per row.**
+- **This is not a canonical five-metric run.** Faithfulness and answer correctness on the eligible rows were the
+  pre-registered quality measure.
+
+| prediction | what was measured | count | verdict |
+|---|---|---|---|
+| P1 accounting | each record against the sum of its parts, `get_openai_callback`, a counting embedder and the ledger's prices | 84/84; worst relative error 2.1e-16 | HOLDS |
+| P2 realized prompt cache | `gpt-4o-mini` cached input share by trial (floor 40%, falsifier below 20%) | 8.1%, 91.0%, 89.4%; the router 0% (934-token prompts, under 1,024) | HOLDS |
+| P3 fire set | rows routed by policy A | {22, 23, 24, 25} 3/3 each; 0/72 elsewhere; 0/84 baseline; row 24's pages identical 3/3 | HOLDS |
+| P4 routed quality | Nova Micro against `gpt-4o-mini` on rows 22–25, per row and aggregate | 4/8 row-metrics fell; aggregate faithfulness -0.0694, correctness -0.0652 | FALSIFIED (the aggregate forecast of HOLDS was a forecast error) |
+| P5 cost delta | four deltas, measured against predicted | each within 0.97× (generation −74.9%, routed request −34.0%, across the 28 −3.58% at list, −2.72% as billed) | HOLDS |
+| P6 refusal | row 25 on `/ask` contexts: the exact sentence | Nova Micro 0/3; `gpt-4o-mini` 3/3 | FALSIFIED |
+| P7 pass-through | (a) hermetic request bodies; (b) live sha256 on the 24 non-eligible rows | 28/28; 72/72 | HOLDS |
+| P8 shipping rule | accounting ON; routing ON only with P4, P6 and a delta of at least 30% across the 28 | the delta is 3.6% | routing OFF |
+
+**Per row (P4):**
+
+| row | metric | `gpt-4o-mini` (3) | Nova Micro (3) | Δ of means | verdict |
+|--:|---|---|---|--:|---|
+| 22 | faithfulness | 0.67 0.67 0.67 | 0.67 0.50 0.67 | -0.056 | **FALSIFIED** |
+| 23 | faithfulness | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds |
+| 24 | faithfulness | 1.00 1.00 1.00 | 1.00 0.67 0.67 | -0.222 | **FALSIFIED** |
+| 25 | faithfulness | 1.00 1.00 1.00 | 1.00 1.00 1.00 | +0.000 | holds |
+| 22 | correctness | 0.77 0.77 0.77 | 0.79 0.56 0.79 | -0.060 | **FALSIFIED** |
+| 23 | correctness | 0.90 0.90 0.75 | 0.76 0.76 0.76 | -0.096 | holds |
+| 24 | correctness | 0.66 0.91 0.91 | 0.77 0.78 0.78 | -0.053 | holds |
+| 25 | correctness | 0.72 0.72 0.72 | 0.66 0.66 0.66 | -0.052 | **FALSIFIED** |
+
+**The measured per-request bill** (Pass A, N=84, at list price): per pass of 28, the tool decision costs $0.03548
+(48.7%), generation $0.03322 (45.6%), the router $0.00417 (5.7%) and embeddings $0.00001, a total of **$0.0729**. R1
+estimated $0.0734. A request's p50 is $0.00259 at list price and $0.00168 as billed.
+
+**Post-hoc readings** (not part of any verdict; the full text is in [`g8_PREDICTION.md`](g8_PREDICTION.md), P4):
+- **Row 24:** Nova Micro cites a page not in its context, 3/3.
+- **Row 22:** `gpt-4o-mini` cites a page not in its context, 3/3, while Nova Micro cites the right page 2/3.
+- **Row 25:** a wording-level correctness gap with identical content.

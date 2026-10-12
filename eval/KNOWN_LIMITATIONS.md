@@ -34,6 +34,12 @@ is true for NIOSH specifically, not across the board.
   [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
 - **Why the array can't show it:** the structured array lists the retrieved pages of both documents, so it can't
   show that the inline attribution is wrong.
+- **A second `gpt-4o-mini` instance, on G8 row 22** (post-hoc, recorded 2026-10-12).
+  - The shipped generator cites `sds-fisher-sodium-hydroxide page=5` in 3/3 trials, on a row whose context holds no
+    page 5. The pH value is on page 4, which Nova Micro cites in 2 of 3 trials.
+  - Faithfulness 0.67 ×3 is the judge partly seeing it ([`g8_PREDICTION.md`](g8_PREDICTION.md), P4).
+  - Both instances here are the shipped generator's. The Nova instances (G11 row 21, G8 row 24) are in those gates'
+    sections below.
 
 **An answer that contains the refusal sentence but is not it is served at high confidence** (G11, recorded
 2026-10-12).
@@ -48,6 +54,13 @@ is true for NIOSH specifically, not across the board.
   - Each Nova answer said the Sigma-Aldrich SDS excerpt lacks the flash point, gave the NIOSH Pocket Guide's 0°F, and
     ended with the exact sentence. The output guard passed all three.
   - So a question scoped to one document is served another document's value at high confidence.
+- **Observed again in G8, on Nova Micro** (G8's P6, on contexts byte-identical to G11's): 0/3 exact. **Two hedge shapes
+  are now named:**
+  - **Nova 2 Lite** leaked another document's value, then appended the sentence;
+  - **Nova Micro** echoed the instruction ("The exact refusal sentence is: …") instead of following it, and leaked no
+    value.
+  - All six answers pass the output guard and are served at 0.9 "high". `gpt-4o-mini` returned the exact sentence in
+    6/6 across the two gates ([`g8_PREDICTION.md`](g8_PREDICTION.md), P6).
 - **Not a property of one provider.** It applies to any model that hedges, a future OpenAI model included.
 - **The fix needs its own gate.** A "hedged" tier at low confidence would change `api/confidence.py`, which `/ask`, the
   default path, shares. Not done in G11 ([`g11_PREDICTION.md`](g11_PREDICTION.md), P6).
@@ -504,3 +517,68 @@ only when Bedrock is selected.
 in repository secrets and not in `render.yaml`. The deployed service cannot select Bedrock, and CI never calls it.
 
 **Not deployed to AWS.** Render stays the host; an AWS deployment was out of scope.
+
+## G8 cost control — what it is and is not shown to do
+Recorded 2026-10-12.
+- **Sources:**
+  - the design is [`g8_design.md`](g8_design.md);
+  - the pre-registration and its outcome are in [`g8_PREDICTION.md`](g8_PREDICTION.md), whose pre-registration commit
+    is tagged `prereg/g8` at PR time;
+  - the run is in the G8 block of [`METRICS_HISTORY.md`](METRICS_HISTORY.md).
+- **Rows are 1-based.**
+
+**What it is.** Every request is accounted for, by `agent/cost.py`, and this ships ON.
+- **The record:** one per request. `_answer` opens it for both endpoints, and the resume endpoint opens its own.
+- **What it holds:** tokens and USD at list price for each component (embedding, router, tool decision, generation),
+  with cached input kept separate.
+- **Where it goes:** one INFO log line per request, and a trace note on the agent path.
+- **Measured:** the record matched an independent capture on 84/84 requests (P1), with a worst relative error of
+  2.1e-16.
+- **No response field,** by the GATE 1 decision.
+
+**There is no traffic.** Every cache figure is a property of reruns of the frozen 28, not of users. As the roadmap
+puts it: *"caching needs traffic, routing needs query diversity. Neither exists at 19 docs."*
+
+**No answer or semantic cache is built.** This is a probe-decided non-build, like BM25 fusion.
+- **On the frozen 28,** an answer cache's hit rate is 100% from the second trial, by construction.
+- **A semantic cache** would serve one question's safety answer to a different question judged similar.
+- **What already exists, at zero code,** is OpenAI's automatic prompt cache:
+  - 91% and 89% of `gpt-4o-mini` input tokens were cached on the second and third trials, and 8% on the first;
+  - the router's prompt (p50 934 tokens) sits under the 1,024-token minimum and is never cached.
+- **Real traffic is what would measure it.** The first 24 hours of it would, and the cost log is what would show it.
+
+**Routing is measured and OFF** (`agent/routing.py`, `ROUTING_ENABLED = False`).
+- **The policy:** a single-document question with no tool, no comparison and no exposure limit. It is eligible on
+  rows 22–25 of the 28.
+- **The pre-registered rule fails on all three counts:**
+  - quality fell on 4 of 8 row-metrics, and at the aggregate (faithfulness −0.069, correctness −0.065);
+  - the exact refusal held 0/3;
+  - the cost delta across the 28 is 3.6%, against the 30% the rule requires.
+- **Turning it on would also need** AWS keys that Render does not have, and it would change the G9 smoke's row 24.
+  **Routing is a policy, not a quality signal.**
+
+**Nova Micro's recorded limits, as the cheap arm:**
+- **Refusal:** it echoes the instruction instead of returning the sentence (3/3), and is served at high confidence
+  (the citation-layer entry above).
+- **Attribution:** row 24 cites a page that isn't in its context (`sds-nutrien-anhydrous-ammonia page=9`, 3/3) for a
+  value on page 6.
+- **Tokenizer:** it counts 6–8% more input tokens than `gpt-4o-mini`'s on the same prompts.
+- **Latency:** 0.67 s p50 on the eligible rows (supplementary, unregistered).
+
+**The accounting's own limits:**
+- **Embeddings are derived:** a tiktoken count of the query, because the embeddings API's usage never reaches
+  LangChain.
+- **Usage is what each API reports,** reconciled with LangChain's independent callback but not with the OpenAI or AWS
+  bills.
+- **A paused request is billed across two log lines:** the router, the tool decision and the embedding on
+  `/ask/agent`, and generation on `/ask/agent/resume`.
+- **The trace note** records the bill up to generation. The output guard that follows costs nothing.
+
+**The named follow-on: a pre-filter on `tool_decide`.** This is the largest controllable line item: the tool decision
+is 48.7% of a request's measured cost, and 26 of the 28 rows need no tool. The R7 probe found:
+- **The predicate:** the comparison gate, or the exposure-limit pattern, or a unit-conversion pattern.
+- **Its fire set** on the frozen 28 is {9, 10, 11, 21}, which includes 9 and 21, the rows where tools fired. On the
+  capability set it fires 3/3, and on the guardrail hard negatives 0/9.
+- **The saving:** skipping the decision on the other 24 rows would save **40.3%** of a pass at list price, as measured.
+- **Not built in G8:** it is a second mechanism, it touches the G1 path, and it needs its own pre-registration,
+  including a check that no tool-needing question is skipped.
