@@ -13,9 +13,11 @@ measured token count × a published list price). List prices used for derivation
 | `text-embedding-3-small` | $0.02 / 1M | — | — |
 | `text-embedding-ada-002` | $0.10 / 1M | — | — |
 | Amazon Nova 2 Lite (Bedrock, the `us.` profile) | $0.33 / 1M | $0.0825 / 1M (cache read) | $2.75 / 1M |
+| Amazon Nova Micro (Bedrock, the `us.` profile) | $0.035 / 1M | $0.00875 / 1M (cache read) | $0.14 / 1M |
 
 Nova 2 Lite's prices (G11) come from the AWS Price List API (`AmazonBedrock`, us-east-1, publication 2026-10-10). They
-are the in-region standard rate, which is what the `us.` cross-region profile is billed at.
+are the in-region standard rate, which is what the `us.` cross-region profile is billed at. Nova Micro's (G8) come from
+the same publication. `agent/cost.py`'s `PRICES` holds these rows as data, and `tests/test_cost.py` asserts they match.
 
 ## Provenance
 - **OpenAI usage dashboard** — read 2026-08-08, range 2026-07-01 → 2026-08-08. Gives totals and
@@ -262,3 +264,36 @@ calls, under $0.01 at list price. Negligible and not counted.
 Nova's charge is derived from the usage Converse reports, at the list price above. Reconcile it in AWS Cost Explorer
 (service: Amazon Bedrock) once billed. The G9 smoke runs on this PR's pushes are not included; their spend is in each
 run's artifact.
+
+## I. G8 cost control (2026-10-12) [d, from measured token counts × list price; AWS billing not reconciled]
+**Source:** the `spend` block and the per-request records of `eval/cost_metrics.json`, plus the discarded plumbing
+check's own spend block.
+
+| item | calls | cost | flag |
+|---|--:|--:|:--|
+| GATE 1 probes (G11's local artifacts, the AWS Price List API, the OpenAI models list) | — | $0 | d |
+| plumbing check before the run (rows 9 and 22, one trial; discarded) | — | $0.0135 | d |
+| Pass A: 84 agent requests, nothing memoized (router, tool decision, generation, embedding) | 84 requests | $0.1529 as billed ($0.2187 at list) | d |
+| Pass B: generation (156 `gpt-4o-mini`, 12 Nova Micro) | 168 | $0.1065 | d |
+| Pass B: memoized router and tool decisions | 58 | $0.0231 | d |
+| judge, `gpt-4o-mini` (24 answers × 2 metrics) | 120 | $0.0290 | d |
+| P6 (3 Nova Micro, 3 `gpt-4o-mini`) | 6 | $0.0027 | d |
+| latency timing (12 Nova Micro, 12 `gpt-4o-mini`; supplementary) | 24 | about $0.01 | d (estimate) |
+| **total** | | **~$0.34** of the $3.00 budget | d |
+
+**The per-request bill, measured** (Pass A, N=84 agent-path requests, at list price):
+
+| component | per pass of 28 | share | p50 per call |
+|---|--:|--:|---|
+| tool decision | $0.03548 | 48.7% | 8,077 tokens in / 46 out (4 of 84 requests made 2 calls) |
+| generation | $0.03322 | 45.6% | 7,505 in / 91 out |
+| router | $0.00417 | 5.7% | 934 in / 13 out |
+| query embedding | $0.00001 | under 0.1% | 1 call, tiktoken-counted |
+| **total** | **$0.0729** | | per request p50 **$0.00259** at list, $0.00168 as billed |
+
+**Routing's measured saving** (policy A, Nova Micro on rows 22–25):
+- per routed answer, $0.000871 → $0.000218 (−74.9%);
+- per routed request, −34.0%;
+- across the 28, −3.58% at list price and −2.72% as billed.
+
+The G9 smoke runs on this PR's pushes are not included; their spend is in each run's artifact.

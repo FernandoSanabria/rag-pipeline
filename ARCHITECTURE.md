@@ -77,7 +77,10 @@ phase0/
   per-thread lock. `state.py`'s `retrieved` reducer appends exactly as `operator.add` and also accepts the
   `RemoveChunk`/`Reset` sentinels a reviewer's amendment uses. `generation.py` is G11's provider seam: the `generate`
   node calls it, and `GENERATION_PROVIDER` selects `openai` (the default, which is the frozen `src.generate.generate`
-  itself) or `bedrock` (Amazon Nova 2 Lite through Bedrock's Converse API; measured and not recommended).
+  itself) or `bedrock` (Amazon Nova 2 Lite through Bedrock's Converse API; measured and not recommended). `cost.py`
+  is G8's per-request accounting: one record per request (opened by `api/main.py`), fed by a LangChain callback hook
+  and the nodes' `phase()` labels, logged as one INFO line. `routing.py` is G8's routing policy (single-document,
+  no tool, no comparison, no exposure limit → Nova Micro through the seam); `ROUTING_ENABLED` ships False.
 - **[`api/`](api/main.py)** — FastAPI: `main.py` (`GET /health`, `POST /ask`, `POST /ask/agent`, and
   `POST /mcp`, the G5 MCP server over streamable HTTP; G10b adds `POST /ask/agent/resume` and
   `GET /ask/agent/review/{thread_id}`, and `/ask/agent` answers 202 when the approval gate pauses),
@@ -242,6 +245,12 @@ currently in flight* consult the ledger and the PR list, not a status line here.
     quality, refusal and cost. The design is in [`eval/g11_design.md`](eval/g11_design.md); the pre-registration and
     its outcome are in [`eval/g11_PREDICTION.md`](eval/g11_PREDICTION.md). This file does not carry a result those
     files own.
+  - **G8 = cost control** ([`agent/cost.py`](agent/cost.py), [`agent/routing.py`](agent/routing.py)).
+    - **Per-request accounting:** built and shipped ON.
+    - **A routing policy to a cheaper generator:** built, measured and switched OFF.
+    - **An answer or semantic cache:** decided against by a read-only probe and not built (no traffic).
+    - The design is in [`eval/g8_design.md`](eval/g8_design.md); the pre-registration and its outcome are in
+      [`eval/g8_PREDICTION.md`](eval/g8_PREDICTION.md). This file does not carry a result those files own.
 
 ## 7. Conventions & guardrails
 

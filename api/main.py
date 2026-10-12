@@ -49,6 +49,7 @@ from fastapi.responses import JSONResponse
 # and in tests (conftest sets dummy env first; load_dotenv does not override existing vars).
 load_dotenv()
 
+from agent import cost  # noqa: E402  (G8 accounting: langchain_core only; never imports agent.graph)
 from api import guards  # noqa: E402
 from api.citations import derive_citations  # noqa: E402
 from api.confidence import score_confidence  # noqa: E402
@@ -166,13 +167,30 @@ def _answer(question: str, pipeline: Callable[[str], dict]) -> tuple[dict, dict 
     output guard).
 
     Returns the response fields and the pipeline's result, which is None when the input guard refused and the
-    pipeline never ran. An allowed question reaches the pipeline as the same str object, never rewritten."""
-    if INPUT_GUARD_ENABLED:
-        refusal = guards.check_input(question).refusal
-        if refusal is not None:
-            return _refused(refusal), None
-    result = pipeline(question)
-    return _assemble(result, question), result
+    pipeline never ran. An allowed question reaches the pipeline as the same str object, never rewritten.
+
+    G8: each call opens one cost record (agent/cost.py) and logs it as one INFO line, with tokens and USD per component
+    and no question or answer text. The agent's nodes attribute their own calls; `/ask`'s frozen pipeline makes one
+    embedding and one generation call."""
+    endpoint = "/ask" if pipeline is ask else "/ask/agent"
+    with cost.request(endpoint) as record:
+        if INPUT_GUARD_ENABLED:
+            with cost.phase("input_guard"):
+                refusal = guards.check_input(question).refusal
+            if refusal is not None:
+                cost.log(record, status="input_refused")
+                return _refused(refusal), None
+        if pipeline is ask:
+            with cost.phase("generate"):
+                result = pipeline(question)
+            cost.add_embedding(question)  # src.pipeline.ask embeds the question once per request (frozen)
+        else:
+            result = pipeline(question)
+        fields = _assemble(result, question)
+        guard = fields.get("guard")
+        cost.log(record, route=result.get("route"), status=result.get("status"),
+                 guard=guard.stage if guard is not None else None)
+    return fields, result
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -244,8 +262,10 @@ def resume_review(req: ResumeRequest) -> AgentAskResponse:
     review (eval/KNOWN_LIMITATIONS.md, G10b)."""
     from agent.graph import resume
 
-    result = resume(str(req.thread_id), req.op, list(req.removals))
-    status = result["status"]
+    with cost.request("/ask/agent/resume") as record:  # G8: a paused question's generation is billed here
+        result = resume(str(req.thread_id), req.op, list(req.removals))
+        status = result["status"]
+        cost.log(record, status=status)
     if status == "invalid":
         raise HTTPException(status_code=422, detail=result["detail"])
     if status == "expired_or_lost":

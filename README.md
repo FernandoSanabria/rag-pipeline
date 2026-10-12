@@ -228,6 +228,28 @@ The agent path's **generation** sits behind a provider seam (G11, [`agent/genera
 
 **The hazard:** when its context lacks the answer, Nova explains, offers a value from another document, and only then gives the refusal sentence, and because the confidence layer recognizes only the exact sentence, that answer is served at "high" confidence with every retrieved page cited ([`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md)).
 
+## Cost
+
+Every request's cost is accounted for and logged (G8, [`agent/cost.py`](agent/cost.py)). Each request writes one INFO line with tokens and USD at list price per component, cached input kept separate, and no question or answer text. Measured on the frozen 28 × 3 trials (N=84 agent-path requests), the record matched an independent capture on 84/84 ([`eval/g8_PREDICTION.md`](eval/g8_PREDICTION.md)).
+
+| component | share of a request's cost | p50 per call |
+|---|--:|---|
+| tool decision | 48.7% | 8,077 tokens in / 46 out |
+| generation | 45.6% | 7,505 in / 91 out |
+| router | 5.7% | 934 in / 13 out |
+| query embedding | under 0.1% | — |
+
+- **A request costs $0.00259 at p50, at list price,** or $0.00168 as billed during the eval.
+- **OpenAI's prompt cache, with no code:** 91% and 89% of input tokens were cached on the second and third trials, and 8% on the first.
+  - That is reruns of the same prompt minutes apart, **not traffic**.
+  - The router's prompt (934 tokens) sits under OpenAI's 1,024-token caching minimum, so it is never cached.
+- **No answer or semantic cache is built.** On a frozen set, the hit rate is 100% by construction, and there is no production traffic to measure it on: *"caching needs traffic, routing needs query diversity."*
+- **Routing to a 4× cheaper model was measured and kept OFF.**
+  - **The policy:** a single-document question with no tool, no comparison and no exposure limit. It routes 4 of the 28 rows to Amazon Nova Micro.
+  - **Measured on those 4 rows × 3 trials:** quality fell on 4 of 8 row-metrics, the exact refusal held 0/3, and the saving across the 28 is 3.6%.
+  - **The pre-registered rule required all three.** Routing is a policy, not a quality signal, and it ships off.
+- **The largest controllable line item is the tool decision.** A pre-filter on the question text would skip it on 24 of the 28 rows, saving 40.3% per pass. It was probed and not built ([`eval/KNOWN_LIMITATIONS.md`](eval/KNOWN_LIMITATIONS.md)).
+
 ## Evaluation in CI
 
 Every PR that touches the pipeline, agent, API or eval code runs **`eval-smoke`**, an 8-row smoke evaluation ([`.github/workflows/eval-smoke.yml`](.github/workflows/eval-smoke.yml), [`scripts/smoke_eval.py`](scripts/smoke_eval.py)) beside the hermetic CI. It sends each row through the served path and fails the build only on **retrieval**: a row's retrieved pages differ from the committed snapshot, or the refusal row stops refusing. Faithfulness and answer correctness are **reported, not gated**. The first version gated faithfulness too, and its pre-registration was falsified: 2 of 5 runs on unchanged code went red because generation at temperature 0 produced a less-faithful answer variant on identical input (G9). The retrieval-only gate then held 5 of 5 runs with no false red, and its deliberate negative proof went red as required (G9b). When a row breaches, its answer is attached to the run only as ciphertext for the maintainer's key, because the logs are public. Without the two API secrets (a fork PR) the job is skipped, never red. The full 28-row suite stays a manual run. The design, predictions and every run are in [`eval/g9_design.md`](eval/g9_design.md), [`eval/g9_PREDICTION.md`](eval/g9_PREDICTION.md) and [`eval/METRICS_HISTORY.md`](eval/METRICS_HISTORY.md).
