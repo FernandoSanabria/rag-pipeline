@@ -9,7 +9,9 @@ Reducer decisions at a glance
 ------------------------------
 A LangGraph channel with NO reducer is *last-write-wins* (overwrite). A channel annotated
 `Annotated[T, add]` is *accumulate* (the reducer merges the prior value with each node's
-return instead of replacing it). Two fields accumulate; the rest overwrite:
+return instead of replacing it). Four fields accumulate; the other ten overwrite:
+[corrected 2026-10-12: was 'Two fields accumulate; the rest overwrite'; the record shows four accumulate — retrieved,
+trace_notes, tool_results and fanout — as the next paragraph and AgentState below say (agent/state.py)]
 
 FOURTEEN channels — ten overwrite, four accumulate. (`source_doc_id` was added in 2C, the three `tool_*`
 channels in G1, `fanout` in G12 and `review` in G10b; the earlier "eight" prose predated all of them —
@@ -23,14 +25,26 @@ eval/replay_safety_design.md §1 flagged the stale count. It is corrected here.)
                                   DOWNGRADE it to "direct" on an execution fallback (2D) — both
                                   sequential (never parallel), so overwrite stays correct
   source_doc_id    overwrite      2C: doc to source-scope to; router sets, 2D fallback clears; sequential
-  retrieval_error  overwrite      True only when retrieve_node caught an exception; single writer
+  retrieval_error  overwrite      True when a retrieval failed: retrieve_node's exception path, a source-scoped
+                                  retrieve whose direct fallback also threw, or (enabled G12 build only) a join
+                                  with no surviving branch; one writer per path [corrected 2026-10-12: was 'True
+                                  only when retrieve_node caught an exception; single writer'; the record shows
+                                  three writers, never two on one path (agent/graph.py: retrieve_node,
+                                  source_scoped_retrieve_node, join_node)]
   retrieved        retrieved_     parallel sub-question retrieval must CONCATENATE branches; G1: tool_exec
                    reducer        also appends synthetic tool-output chunks here (see G1 block below). G10b: a plain
                    (ACCUM)        list appends exactly as operator.add; the RemoveChunk / Reset sentinels let a
                                   reviewer's amendment drop a chunk or clear the list (see the G10b block below)
   answer           overwrite      produced by ONE node (generate); no fan-in
-  citations        overwrite      derived once from the deduped context; no fan-in
-  trace_notes      add (ACCUM)    every node (incl. parallel branches) appends a breadcrumb
+  citations        overwrite      never written by a node: fresh_state sets [] and the API layer derives citations
+                                  (api/citations.py) [corrected 2026-10-12: was 'derived once from the deduped
+                                  context; no fan-in'; the record shows no node or update_state call writes it
+                                  (agent/graph.py; the note after AgentState below)]
+  trace_notes      add (ACCUM)    every node that runs appends at least one breadcrumb (parallel branches too),
+                                  except review_gate when its trigger does not fire; generate appends three
+                                  [corrected 2026-10-12: was 'every node (incl. parallel branches) appends a
+                                  breadcrumb'; the record shows review_gate returns an empty update when it does
+                                  not fire (agent/graph.py, review_gate_node)]
   tool_calls       overwrite      G1: tool calls the model requested THIS iteration; tool_decide sets,
                                   tool_exec clears; one writer per super-step, no fan-in
   tool_results     add (ACCUM)    G1: results across loop iterations must CONCATENATE; no dedup (a re-run
@@ -48,11 +62,14 @@ Why `retrieved` MUST accumulate (the #1 silent LangGraph bug)
 In 2B the graph fans out: one `dense_search` per sub-question, running in parallel, each
 returning its own chunk list into the SAME `retrieved` channel. With the default overwrite
 reducer, concurrent writes to one channel are a hard error in LangGraph — or, worse on a
-sequential path, silently last-write-wins: the synthesize/generate node then sees only the
+sequential path, silently last-write-wins: the generate node then sees only the
 FINAL sub-query's chunks and every earlier sub-query's evidence vanishes. That failure is
 invisible (the graph runs, returns an answer, and the answer is just quietly under-grounded),
 which is exactly why it is the classic LangGraph footgun. `Annotated[list[dict], add]` makes
-the branches concatenate, so all sub-queries' chunks survive to synthesis.
+the branches concatenate, so all sub-queries' chunks survive to generation.
+[corrected 2026-10-12: was 'the synthesize/generate node' and 'survive to synthesis'; the record shows no synthesize
+node was built, and the fan-out G12 did build stages its branches in `fanout` (agent/graph.py; the G12 paragraph
+below)]
 Tradeoff of `add` here: it concatenates blindly, so N overlapping sub-queries × k produce
 duplicates (facets of one question retrieve many of the same chunks). Accumulation is correct;
 DEDUP is the join's job — see `chunk_content_key` below for the recorded basis.
@@ -64,24 +81,37 @@ which plain `add` on `retrieved` cannot carry, and no pre-G12 path writes `fanou
 byte-identical by construction. `retrieved` keeps `add` because tool_exec still appends after retrieval.
 
 Why `trace_notes` accumulates: the eval harness needs to assert on the PATH TAKEN (decomposed
-vs direct), not just the final answer. Every node appends one breadcrumb; parallel branches
-each append theirs; `add` preserves all of them. Overwrite would keep only the last node's note
+vs direct), not just the final answer. Every node that runs appends at least one breadcrumb, except
+review_gate when its trigger does not fire; parallel branches each append theirs; `add` preserves all of
+them. [corrected 2026-10-12: was 'Every node appends one breadcrumb'; the record shows review_gate writes none when it
+does not fire, and generate writes three: its own, the routing decision and the cost line (agent/graph.py)] Overwrite would keep only the last node's note
 and destroy the path record. Tradeoff: the list grows unbounded within a run — acceptable, a
 single request is short-lived; it is never persisted across requests (see invariant (a)).
 
-Why the other six overwrite: each is written by exactly ONE node on any given path, so there
-is no fan-in to merge. Overwrite is the simplest correct choice; its only hazard is that two
-*concurrent* branches writing the same channel would conflict — none of these six are ever
-written from a parallel branch (only `fanout` and `trace_notes` are, in G12), so overwrite is safe.
-Using `add` on them instead would be actively wrong: re-running a node (e.g. a retry) would
-append a second `answer`/`sub_questions`/`route`/`retrieval_error` rather than replace it.
+Why the other ten overwrite: no two writers of any of them ever share a super-step, so there is
+no fan-in to merge. Most have one writer. `route` and `source_doc_id` are written by the router,
+then possibly by a source-scoped retrieve's fallback; `tool_calls` by tool_decide, then tool_exec;
+`review` by review_gate, then review_wait or the resume endpoint's update_state — all sequential.
+In the shipped build every edge resolves to one node, and in the enabled G12 build the parallel
+`Send` branches write only `fanout` and `trace_notes`, both accumulators; LangGraph would raise on
+a second LastValue write in one step, and none occurs. Overwrite is the simplest correct choice.
+Using `add` on them instead would be actively wrong: anything that re-applies writes — update_state,
+thread reuse or a fork — would append a second `answer`/`sub_questions`/`route`/`retrieval_error`
+rather than replace it.
+[corrected 2026-10-12: was 'Why the other six overwrite: each is written by exactly ONE node on any given path'; the
+record shows ten overwrite channels, four of them with sequential writers (the table above; agent/graph.py)]
+[corrected 2026-10-12: was 're-running a node (e.g. a retry) would append'; the record shows a retry discards its
+failed attempt's writes in LangGraph 1.0.1 (eval/replay_safety_design.md, EXP1)]
 
-CAUTION — the `add` reducer turns a node-level RETRY into an APPEND, not a replace.
-A retried `retrieve_node` under `add` would DOUBLE `retrieved` (and re-append its
-`trace_notes`), doubling the context and breaking the v4 byte-repro gate. This is safe TODAY
-only because no retry policy is configured and dedup does not run on the direct path — so any
-future addition of node retries (LangGraph `RetryPolicy`) must account for it (idempotent
-returns, or dedup that also runs on the direct path). Do not add retries blind.
+CAUTION — an `add` channel appends whatever is RE-APPLIED to it. update_state, thread reuse and
+fork/replay each append again (eval/replay_safety_design.md, EXP3–EXP5). A node-level RETRY does
+not: LangGraph 1.0.1 clears a task's writes before each attempt, so only the successful attempt's
+writes apply, once (EXP1). G10b closes the doublers: one fresh uuid4 thread per ask(), and amend
+sends removal sentinels through `retrieved`'s reducer instead of re-appending. No RetryPolicy is
+configured today.
+[corrected 2026-10-12: was 'the add reducer turns a node-level RETRY into an APPEND, not a replace. A retried
+retrieve_node under add would DOUBLE retrieved'; the record shows retries discard failed-attempt writes in LangGraph
+1.0.1, and the doublers are update_state, thread reuse and fork (eval/replay_safety_design.md, section 1 and EXP1)]
 
 --------------------------------------------------------------------------------
 Two repo-grounded invariants encoded here
@@ -96,7 +126,9 @@ this is a live hazard, not a hypothetical. The contract: the entry adapter build
 AgentState for every question. `fresh_state()` is the one blessed constructor — invoke the
 graph with its output and nothing leaks between rows.
 
-(b) CHUNK DEDUP BASIS — recorded now, applied in 2B.
+(b) CHUNK DEDUP BASIS — recorded in 2A, applied by G12's join (enabled build only).
+[corrected 2026-10-12: was 'recorded now, applied in 2B'; the record shows the only dedup call site is join_node,
+which the shipped build does not compile (agent/graph.py, join_node and FANOUT_ENABLED)]
 Retrieved chunks are `{text, source_doc_id, page}` with NO stable id (verified in
 src/retrieve.dense_search). So 2B's dedup cannot key on an id; it keys on a CONTENT HASH over
 the triple (source_doc_id, page, text). Critically, `text` MUST be in the key: the semantic
@@ -120,13 +152,22 @@ tool_results (add, ACCUM): accumulates one entry per (iteration, tool) by design
   attempt), so a retry appends once, not twice; fresh_state per invocation (invariant (a)) blocks cross-row
   leak; NO dedup (a re-executed tool genuinely ran — the record should show it, like trace_notes). Under the
   checkpoint-replay family (update_state / thread reuse / fork) it appends like any add channel (§4 hazard),
-  mitigated by one-thread-per-question (G10b). No checkpointer today, so inert now.
+  mitigated by one-thread-per-question (G10b). A checkpointer exists since G10b (a SqliteSaver when REVIEW_DB_PATH
+  is set, as in production), and this stays inert: one thread per question rules out reuse and fork, and the only
+  update_state call (amend) writes retrieved, review and trace_notes, never tool_results.
+  [corrected 2026-10-12: was 'No checkpointer today, so inert now'; the record shows G10b added the SqliteSaver and
+  production sets REVIEW_DB_PATH (agent/review.py; render.yaml)]
 tool_iterations (overwrite / LastValue): idempotent counter; a retried write re-reads state and produces the
   same n+1 once.
 
 Also NEW in G1: tool_exec is a SECOND writer of `retrieved` (add), appending synthetic tool-output chunks
-(source_doc_id="tool:<name>", page=None) so the FROZEN generate_node grounds on tool results without being
-touched. Inherits retrieved's §4 policy. (G10b replaced operator.add with retrieved_reducer; see below.)
+(source_doc_id="tool:<name>", page=None) so generate_node grounds on tool results with its generation
+request unchanged: the request body stays byte-identical (tests/test_generation.py), although G8 later added
+routing and cost lines to the node and G11 routed it through the provider seam.
+[corrected 2026-10-12: was 'so the FROZEN generate_node grounds on tool results without being touched'; the record
+shows generate_node changed in G8 and G11 while its request body did not (agent/graph.py, generate_node;
+tests/test_generation.py)]
+Inherits retrieved's §4 policy. (G10b replaced operator.add with retrieved_reducer; see below.)
 
 --------------------------------------------------------------------------------
 G12 fan-out channel — replay rule
@@ -190,7 +231,7 @@ class AgentState(TypedDict):
     sub_questions: list[dict]                  # G12 decomposition plans {question, source_doc_id}; [] when not decomposed
     route: str                                 # "direct" | "source_scoped" | "decomposed" — router sets it; source-scoped retrieve may downgrade to "direct" on 2D fallback; decompose sets "decomposed" when it fans out (G12; all sequential)
     source_doc_id: str                         # 2C: doc to source-scope retrieval to; "" on the direct path (router; cleared by 2D fallback)
-    retrieval_error: bool                      # True iff retrieve_node caught an exception (single writer: retrieve)
+    retrieval_error: bool                      # True iff a retrieval failed (retrieve_node; a scoped retrieve whose fallback also threw; the G12 join) [corrected 2026-10-12: was 'single writer: retrieve'; three writers, one per path]
     retrieved: Annotated[list[dict], retrieved_reducer]  # ACCUMULATE (== add for plain lists); G10b sentinels amend
     answer: str                                # final grounded answer (single writer: generate)
     citations: list[dict]                      # stays [] in 2A — API layer owns citations (see below)
@@ -225,8 +266,11 @@ class AgentState(TypedDict):
 # EXCEPTION returns answer="" WITHOUT calling generate (no LLM cost), contexts=chunks=[]. A
 # *legitimate* empty retrieval (no matches, no exception) is different: pipeline still calls
 # generate over empty context (→ refusal). `not retrieved` cannot distinguish the two; this
-# explicit flag can — retrieve_node sets it True only in its except-path, and generate_node
-# short-circuits to answer="" only when it is True. Single writer (retrieve_node), overwrite.
+# explicit flag can — retrieve_node sets it True in its except-path (as do source_scoped_retrieve_node when its
+# direct fallback also throws, and G12's join when every branch fails), and generate_node short-circuits to
+# answer="" only when it is True. One writer per path, overwrite.
+# [corrected 2026-10-12: was 'retrieve_node sets it True only in its except-path' and 'Single writer (retrieve_node)';
+# the record shows three writers, never two on one path (agent/graph.py)]
 
 
 def fresh_state(question: str) -> AgentState:
@@ -258,7 +302,9 @@ def fresh_state(question: str) -> AgentState:
 
 
 def chunk_content_key(chunk: dict) -> tuple[str | None, int | None, str]:
-    """Recorded dedup basis for retrieved chunks (invariant (b)) — used by 2B synthesize_node.
+    """Recorded dedup basis for retrieved chunks (invariant (b)) — used by G12's join_node, which only the enabled
+    fan-out build compiles; no dedup runs on a shipped path. [corrected 2026-10-12: was 'used by 2B synthesize_node';
+    the record shows no synthesize node exists and the dedup call site is join_node (agent/graph.py, join_node)]
 
     Identity is the content triple (source_doc_id, page, text). `text` is included on purpose:
     (source_doc_id, page) is NOT unique because the semantic namespace sub-splits one page into

@@ -91,6 +91,11 @@ POST /ask  — "how does the NIOSH IDLH compare to the EPA RMP toxic endpoint?"
 }
 ```
 
+**[corrected 2026-10-12: the response above is kept verbatim, as served; the record shows its '300 ppm (0.21 mg/m³)'
+is off by ×1000 — the value fits mg/L, not mg/m³ — and the same answer text is the one answer that the output
+guard's replay over 678 recorded answers later withheld (`eval/METRICS_HISTORY.md`, the G6 output-guard replay row;
+`eval/g6_PREDICTION.md`, "The replay")]**
+
 ## The honest ledger
 
 Both targets are recovered and both are served — but in two different deployment states, and I'd rather say so than blur them. IDLH is served on the default `/ask` endpoint, off the promoted `semantic_v2` namespace, on every request. Acetone is served on the routed `/ask/agent` endpoint, which any request can opt into but which isn't the default. Two wins, two different places on the wire.

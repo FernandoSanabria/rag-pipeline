@@ -184,7 +184,9 @@ G1).
 - **Correctness:** 0.0 on every row except row 15 (0.0417) and row 21 (0.0022).
 
 **Aggregate over the 8:**
-- **Faithfulness mean:** 0.875 in both runs. Row 25's refusal scores 0.0 by construction.
+- **Faithfulness mean:** 0.875 in both runs. Row 25's refusal scored 0.0 in every observed run.
+  **[corrected 2026-10-12: was 'Row 25's refusal scores 0.0 by construction'; the record shows 0.0 is observed, not
+  guaranteed: two v1 refusals scored 1.0 (`eval/METRICS_HISTORY.md`, the 2026-10-12 refusal-faithfulness line)]**
 - **Correctness mean:** 0.5812 against 0.5862.
 
 **Judge NaNs.** On the promoted pipeline across all 28 rows, **7 rows have a faithfulness NaN in at least one run**
@@ -201,7 +203,9 @@ Both rows are excluded.
 - **The check:** for each row, the SET of (source_doc_id, page) must equal the snapshot (set equality,
   order-insensitive).
 - **Plus, on the refusal row only:** the answer must still be the whole refusal (`api.confidence.is_refusal`).
-  Faithfulness is 0.0 by construction there and cannot see a change.
+  Faithfulness scored 0.0 there in every observed run, so it cannot see a change. **[corrected 2026-10-12: was
+  'Faithfulness is 0.0 by construction there'; the record shows two v1 refusals scored 1.0, so 0.0 is observed, not
+  guaranteed (`eval/METRICS_HISTORY.md`, the 2026-10-12 refusal-faithfulness line)]**
 - **A regression means:** a row's retrieved evidence changed, or the refusal row stopped refusing.
 - **Expected false-red rate:** about 0 per run.
   - There were 0 set variations in about 45 row-observations over two months.

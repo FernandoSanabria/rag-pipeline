@@ -183,6 +183,15 @@ answer_relevancy, context_precision, context_recall, **answer_correctness** (vs 
     **24 of 28** rows, so there any Nova mean below 0.97 falsifies the row, and one trial at 0.86 is enough (row 9).
     This is a property of the rule as registered ([`g11_PREDICTION.md`](g11_PREDICTION.md)); it is stated, not
     reopened.
+  - 2026-10-12: what an exact refusal scores on faithfulness, counted read-only over the local result files
+    (gitignored; one file per run, copies dropped) during the study-bank verification.
+    - **Scored exact refusals** (the whole answer is the refusal sentence): **35 of 37 scored 0.0**, and **1.0 twice**,
+      both on row 24 (`sds-nutrien-anhydrous-ammonia`) in the two v1 runs. Every refusal in the v3 runs scored 0.0.
+    - **So a refusal usually pulls the faithfulness aggregate down,** and 0.0 is observed, not guaranteed. A further
+      17 exact refusals (G1 closure, G6, G8 and G11 files) carry no faithfulness score. Rows here are 1-based.
+  - 2026-10-12: the frozen 28 cite **17 of the 19** manifest documents (counted from `eval/dataset.jsonl`'s
+    `source_doc_id`, each cross-document row counted for both of its documents). `controls-hazardous-energies` and
+    `atlas-copco-ga-compressors` appear in no row.
 - **answer_correctness for v1 is retro-defined.** At v1 capture, CLAUDE.md still mandated four
   metrics, so `run_eval.py` scored the canonical four and `answer_correctness` (0.4042) was computed
   in a **separate** `evaluate()` pass over the same 28 rows, recorded as a supplementary field in the
@@ -486,7 +495,9 @@ G9b runs in its G9b outcome.
    (answer B).
 2. #10, row 24, T2: noise. The same answer B, replayed from the cache.
 
-That is 2 noise reds in 7 gated runs, so **the registered demotion fired**: G9's check became reported-only.
+That is 2 noise reds in the first seven gated runs (#5–#10 and #13), so **the registered demotion fired**: G9's check
+became reported-only. **[corrected 2026-10-12: was '2 noise reds in 7 gated runs'; reworded to name the window's runs,
+the wording `eval/g9_PREDICTION.md` now uses too]**
 
 **G9b window** (the G9b build, from #14 on): 0 reds in 6 gated runs (#14–#19).
 - **Appended, #26:** green, so the window stands at 0 reds in 7 gated runs. Row 21's misattribution variant, read

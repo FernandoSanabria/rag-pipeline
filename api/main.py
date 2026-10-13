@@ -66,10 +66,14 @@ from api.schemas import (  # noqa: E402
 from mcp_server.server import mcp  # noqa: E402
 from src.pipeline import ask  # noqa: E402
 
-# NOTE: `agent.graph` is imported LAZILY inside ask_question_agent (not at module load) so the shipped
-# /ask path — and the whole app's startup — can never be coupled to the agent layer's import health.
-# An agent-side import problem then degrades to a 500 on /ask/agent ALONE, never a boot crash that
-# takes /ask down with it (which is exactly what a missing agent/ package once did to the deploy).
+# NOTE: `agent.graph` is imported LAZILY: inside the /ask/agent endpoints, and in the startup sweep behind a
+# try/except. A graph-side import problem therefore degrades to a 500 on /ask/agent ALONE, never a boot crash.
+# The rest of the agent package is no longer isolated: `agent.cost` (G8, imported above) and `agent.tools` (G5,
+# through mcp_server.server) load at startup, so a missing agent/ package crashes the boot again — which is exactly
+# what it once did to the deploy (the Dockerfile's note on COPY agent/ says the same).
+# [corrected 2026-10-12: was 'so the shipped /ask path — and the whole app's startup — can never be coupled to the
+# agent layer's import health'; the record shows api/main.py imports agent.cost at module load and
+# mcp_server/server.py imports agent.tools (api/main.py, the agent.cost import; mcp_server/server.py)]
 #
 # The MCP server, by contrast, is imported EAGERLY: /mcp is a route, and a route has to exist at startup. If the
 # image lacks mcp_server/, the new image fails on boot, the platform keeps serving the previous image (so /ask

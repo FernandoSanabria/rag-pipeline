@@ -1,4 +1,6 @@
-"""Dense retrieval over a configurable Pinecone namespace (default fixed_500_50).
+"""Dense retrieval over a configurable Pinecone namespace (default semantic_v2, from src/config.py).
+[corrected 2026-10-12: was 'default fixed_500_50'; the record shows the default is semantic_v2, promoted after the
+like-for-like gate and pinned in render.yaml (src/config.py, retrieval_namespace)]
 
 Embeds the query with text-embedding-3-small and returns the top-k chunks with their
 source_doc_id and (1-based) page. `format_contexts` produces the ONE canonical context
@@ -6,8 +8,10 @@ representation that is used both in the generation prompt AND returned by the pi
 RAGAS grades exactly the text the model reasoned over.
 
 The retrieval namespace is read from settings.retrieval_namespace (env RETRIEVAL_NAMESPACE),
-defaulting to the v1 baseline "fixed_500_50" — this lets us A/B different chunking strategies
+defaulting to "semantic_v2" (src/config.py) — this lets us A/B different chunking strategies
 (each in its own namespace) without editing code or the default.
+[corrected 2026-10-12: was 'defaulting to the v1 baseline "fixed_500_50"'; the record shows the v1 baseline is still
+selectable with RETRIEVAL_NAMESPACE=fixed_500_50, but the default is semantic_v2 (src/config.py)]
 """
 
 from functools import lru_cache

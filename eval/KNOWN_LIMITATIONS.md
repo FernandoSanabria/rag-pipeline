@@ -451,6 +451,11 @@ The follow-on is a reviewer token. It is not built.
 - The gate shows exactly what `generate` would receive, so retrieval's known precision problem lands on the reviewer.
 - Amend (removals) is the tool for it, one key at a time.
 
+The 202 pending-review response serves verbatim chunk text from both tiers without tier or license labels and does
+not pass through `policy.render_text`; the MCP contract (Option A) requires labels on every served chunk. Recorded
+2026-10-12 from the study-bank verification; the fix — additive tier and license fields on `ReviewEvidence`, rendered
+through the same policy table — is a follow-on, not made here.
+
 **Single worker.** Concurrent resumes of one thread are serialized by an in-process lock. That holds for the one
 uvicorn worker the Dockerfile runs. Several workers or instances would need a database-level guard.
 
